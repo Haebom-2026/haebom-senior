@@ -24,11 +24,19 @@ import kr.haebom.elder.ui.ElderUi
 internal class OverlayCard(private val context: Context) {
     data class Action(val label: String, val kind: ElderUi.Kind = ElderUi.Kind.PRIMARY, val run: () -> Unit)
 
+    private companion object {
+        /** 어르신 답을 기다리는 카드: AI 질문 카드가 덮지 않음 (동의·로그인 방법·앱 고르기) */
+        val PROTECTED = listOf("consent:", "login:", "pick:")
+    }
+
     private val manager = context.getSystemService(WindowManager::class.java)
     private var view: LinearLayout? = null
     private var shownKey: String? = null
 
     val isShowing: Boolean get() = view != null
+
+    /** 지금 떠 있는 카드의 key (없으면 null) */
+    val currentKey: String? get() = shownKey?.takeIf { view != null }
 
     /** [key] 가 같은 카드가 떠 있으면 다시 띄우지 않음. [accent] 는 테두리 색 */
     fun show(
@@ -42,7 +50,8 @@ internal class OverlayCard(private val context: Context) {
         if (shownKey == key && view != null) return
         // "보호자에게 알릴까요?" 카드는 AI 질문 카드로 덮지 않음: 덮으면 5분 동안 다시 묻지 않아 놓치게 됨.
         // 질문은 자막·음성으로 그대로 나오고, 동의 카드에 답하면 다음 화면 갱신 때 질문 카드가 뜸
-        if (view != null && shownKey?.startsWith("consent:") == true && key.startsWith("ask:")) {
+        // 어르신이 고르는 카드(로그인 방법·앱)도 AI 질문으로 덮지 않음
+        if (view != null && PROTECTED.any { shownKey?.startsWith(it) == true } && key.startsWith("ask:")) {
             android.util.Log.d("HaebomGuide", "카드 미룸: $key (동의 카드에 먼저 답해야 함)")
             return
         }

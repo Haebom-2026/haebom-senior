@@ -36,7 +36,8 @@ class CommandRouteTest {
         // 앱을 말하지 않음 → 유튜브 검색으로 짐작해서 물음
         val youtubeFirst = listOf(Search.Where.YOUTUBE, Search.Where.WEB)
         assertEquals(CommandRoute.Guess("임영웅", youtubeFirst), CommandRoute.of("임영웅 찾아줘", null, aiAvailable = true))
-        assertEquals(CommandRoute.Guess("트로트 노래", youtubeFirst), CommandRoute.of("트로트 노래 틀어 줘", null, aiAvailable = true))
+        // 노래는 어느 앱으로 들을지 깔린 앱을 보고 고르게 (유튜브로 정하지 않음)
+        assertEquals(CommandRoute.PickApp(AppChoice.Kind.MUSIC, "트로트 노래"), CommandRoute.of("트로트 노래 틀어 줘", null, aiAvailable = true))
         // 분명한 말은 바로
         assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("유튜브에 임영웅 검색해줘", null, aiAvailable = true))
         // 다른 곳을 말했으면 유튜브로 짐작하지 않음
@@ -92,5 +93,15 @@ class CommandRouteTest {
         assertEquals(null, Confirm.pick("지도", options))
         assertEquals("https://search.naver.com/search.naver?query=%EC%9A%B0%EC%B2%B4%EA%B5%AD", Search.webUrl(Search.Web("우체국", Search.Engine.NAVER)))
         assertTrue(Search.mapUrls("우체국", "kr.haebom.elder").first().first.startsWith("nmap://search?query=%EC%9A%B0"))
+    }
+
+    @Test
+    fun appKindsWithoutANamedAppArePicked() {
+        assertEquals(CommandRoute.PickApp(AppChoice.Kind.MUSIC, null), CommandRoute.of("노래 좀 틀어 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.PickApp(AppChoice.Kind.TAXI, null), CommandRoute.of("택시 불러 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.PickApp(AppChoice.Kind.MAP, null), CommandRoute.of("지도 열어 줘", null, aiAvailable = true))
+        // 앱을 말했으면 그 앱으로
+        assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅 노래"), CommandRoute.of("유튜브에서 임영웅 노래 틀어 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Ai, CommandRoute.of("멜론에서 임영웅 노래 틀어 줘", null, aiAvailable = true))
     }
 }

@@ -137,4 +137,19 @@ class AuthGuideTest {
         assertNull(secret.text)
         assertTrue(secret.filled)
     }
+
+    @Test
+    fun methodChoiceOffersEveryMethodAndPressesTheChosenOne() {
+        val pass = button("통신사PASS", 600)
+        val kakao = button("카카오톡", 800)
+        val naver = button("네이버", 1000)
+        val screen = listOf(label("인증서를 선택해 주세요", 400), pass, kakao, naver)
+        val ask = AuthGuide.step(screen)!!
+        assertEquals(AuthGuide.Kind.CHOOSE_METHOD, ask.kind)
+        assertEquals(listOf("통신사PASS", "카카오톡", "네이버"), ask.options.map(AuthGuide::optionName))
+        // 어르신이 카카오톡을 골랐으면 그 단추를 짚음
+        val chosen = AuthGuide.step(screen, chosen = listOf("간편인증", "카카오톡"))!!
+        assertEquals(AuthGuide.Kind.PRESS_CHOSEN, chosen.kind)
+        assertSame(kakao, chosen.target)
+    }
 }

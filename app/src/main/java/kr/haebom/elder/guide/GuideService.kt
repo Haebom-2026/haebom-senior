@@ -347,6 +347,13 @@ class GuideService : AccessibilityService() {
         // 목적지에 도착했으면 서버를 더 부르지 않고 마침
         goalReached(active, foreground, step)?.let { return finishGuide(it) }
 
+        // 로그인 방법을 고르는 화면: AI 가 정하지 않게 어르신께 먼저 물음 (고른 뒤에는 그 단추를 짚음)
+        captured?.let { cap ->
+            AuthGuide.step(cap.nodes, GuideSession.choices(LOGIN_SLOT))
+                ?.takeIf { it.kind == AuthGuide.Kind.CHOOSE_METHOD || it.kind == AuthGuide.Kind.PRESS_CHOSEN }
+                ?.let { return authDecision(cap, windowId, foreground) ?: Decision(null, null) }
+        }
+
         // 화면 안내 AI(#16): 서버가 있으면 AI 가 다음 행동을 정하고, 답하지 못하면 아래 로컬 안내로
         if (ai != null && captured != null) {
             aiDecision(active, captured, windowId, foreground)?.let { return it }
@@ -686,11 +693,15 @@ class GuideService : AccessibilityService() {
      * 안내할 것을 못 찾으면 null (예전처럼 "직접 해 주세요")
      */
     private fun authDecision(captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
-        val step = AuthGuide.step(captured.nodes) ?: return null
+        val step = AuthGuide.step(captured.nodes, GuideSession.choices(LOGIN_SLOT)) ?: return null
         // 단계와 이름표(예: '비밀번호', '간편인증')만 남김. 칸의 글자는 원래 갖고 있지 않음
         android.util.Log.i("HaebomGuide", "로그인 안내: ${step.kind} '${step.arg}' 짚음=${step.target != null}")
         val say = when (step.kind) {
-            AuthGuide.Kind.CHOOSE_METHOD -> getString(R.string.auth_choose_method, step.arg)
+            AuthGuide.Kind.CHOOSE_METHOD -> {
+                askLoginMethod(step)
+                getString(R.string.pick_login_method)
+            }
+            AuthGuide.Kind.PRESS_CHOSEN -> getString(R.string.auth_press_chosen, step.arg)
             AuthGuide.Kind.START -> getString(R.string.auth_start, step.arg)
             AuthGuide.Kind.TYPE_FIELD -> getString(R.string.auth_type_field, step.arg)
             AuthGuide.Kind.TYPE_SECRET -> getString(R.string.auth_type_secret, step.arg)
@@ -1131,6 +1142,15 @@ class GuideService : AccessibilityService() {
      * 해봄 앱 화면으로 넘어가지 않고 떠 있는 카드([OverlayCard])로 물음.
      */
     private fun handleSpoken(spoken: String, foreground: String?) {
+        // 고르기 카드(앱·로그인 방법)에 말로 대답: 단추 글자와 맞으면 그것으로. 맞지 않으면 새 요청으로 봄
+        pendingPick?.let { pick ->
+            AskAnswer.match(spoken, pick.options, getString(R.string.ask_unknown))?.let { picked ->
+                pendingPick = null
+                card.hide()
+                pick.onPick(picked)
+                return
+            }
+        }
         // "이렇게 할까요?" 물은 뒤의 짧은 대답: 예면 그 일을, 아니요면 취소. 그 밖의 말은 새 요청
         pendingChoices?.let { choices ->
             Confirm.pick(spoken, choices.keys.toList())?.let { where ->
@@ -1202,6 +1222,7 @@ class GuideService : AccessibilityService() {
                 GuideCaption.post(getString(R.string.guide_gov24_limited), GuideCaption.Tone.INFO)
                 kr.haebom.elder.launchGuide(this, GuideTask.GOV24, foreground, announce = false, null, spoken)
             }
+            is CommandRoute.PickApp -> pickApp(route, spoken, foreground)
             is CommandRoute.OpenApp -> {
                 val opened = kr.haebom.elder.openAppByName(this, route.app)
                 when {
@@ -1228,6 +1249,149 @@ class GuideService : AccessibilityService() {
         }
     }
 
+    // ───────────────────────── 어르신이 고르기 (앱·로그인 방법) ─────────────────────────
+
+    /** 떠 있는 고르기 카드: 단추 글자들과 고른 뒤 할 일 (말로 대답해도 됨) */
+    private data class PendingPick(val key: String, val options: List<String>, val onPick: (String) -> Unit)
+    private var pendingPick: PendingPick? = null
+
+    /**
+     * 여러 가지 중 어르신이 고르는 카드. 질문을 읽어 준 뒤 마이크를 켜서 말 대답도 받음.
+     * [extra] 는 맨 아래 덧붙이는 단추들 ("다른 방법", "모르겠어요" 등: 고르면 그 글자가 [onPick] 으로 감)
+     */
+    private fun showPick(
+        key: String,
+        question: String,
+        options: List<String>,
+        extra: List<String> = listOf(getString(R.string.cancel)),
+        onPick: (String) -> Unit,
+    ) {
+        if (pendingPick?.key == key && card.currentKey == key) return
+        val all = options + extra
+        val cancel = getString(R.string.cancel)
+        val pick = PendingPick(key, all) { picked ->
+            if (picked == cancel) GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO) else onPick(picked)
+        }
+        pendingPick = pick
+        card.show(
+            key = key,
+            title = getString(R.string.pick_title),
+            message = question,
+            actions = all.mapIndexed { index, option ->
+                val kind = when {
+                    option in extra -> ElderUi.Kind.QUIET
+                    index == 0 -> ElderUi.Kind.PRIMARY
+                    else -> ElderUi.Kind.SECONDARY
+                }
+                OverlayCard.Action(option, kind) {
+                    pendingPick = null
+                    stopListening(announce = false)
+                    pick.onPick(option)
+                }
+            },
+        )
+        GuideCaption.post(question, GuideCaption.Tone.INFO, speak = false)
+        voice?.stop()
+        speak(question) {
+            if (pendingPick === pick && !listener.isListening) startListening(fallbackToWindow = false)
+        }
+    }
+
+    /** "노래 틀어 줘" 등: 깔린 앱 중 하나면 그 앱, 여럿이면 고르게, 없으면 인터넷 검색 */
+    private fun pickApp(route: CommandRoute.PickApp, spoken: String, foreground: String?) {
+        GuideSession.stop()
+        val apps = AppChoice.installed(route.kind, kr.haebom.elder.launcherApps(this))
+        android.util.Log.d(TAG, "앱 고르기 ${route.kind}: 깔린 앱 ${apps.size}개")
+        when {
+            apps.isEmpty() -> {
+                GuideCaption.post(getString(R.string.pick_app_none), GuideCaption.Tone.INFO)
+                openWebSearch(Search.Web(route.query ?: GuideTask.searchWords(spoken) ?: spoken, Search.Engine.NAVER))
+            }
+            apps.size == 1 -> startWithApp(apps.single(), route, spoken, foreground)
+            else -> showPick(
+                key = "pick:app:${route.kind}",
+                question = getString(
+                    when (route.kind) {
+                        AppChoice.Kind.MUSIC -> R.string.pick_app_music
+                        AppChoice.Kind.TAXI -> R.string.pick_app_taxi
+                        AppChoice.Kind.MAP -> R.string.pick_app_map_plain
+                    },
+                ),
+                options = apps.map { it.label },
+            ) { picked ->
+                apps.firstOrNull { it.label == picked }?.let { startWithApp(it, route, spoken, foreground) }
+            }
+        }
+    }
+
+    /** 고른 앱으로 시작: 유튜브는 앱이 아는 검색 안내, 그 밖의 앱은 열고 말 그대로 AI 안내 */
+    private fun startWithApp(app: AppChoice.App, route: CommandRoute.PickApp, spoken: String, foreground: String?) {
+        if (app.packageName == GuideTask.YOUTUBE.appPackage) {
+            GuideCaption.post(getString(GuideTask.YOUTUBE.nextStepText()), GuideCaption.Tone.INFO)
+            kr.haebom.elder.launchGuide(this, GuideTask.YOUTUBE, foreground, announce = false, route.query, spoken)
+            return
+        }
+        val launch = packageManager.getLaunchIntentForPackage(app.packageName)
+        if (launch == null) {
+            GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+            return
+        }
+        GuideSession.stop()
+        GuideSession.startAi(
+            utterance = "${app.label}에서 $spoken".take(200),
+            goal = GuideTask.GOAL_OPEN_APP,
+            slots = mapOf("app" to app.label) + (route.query?.let { mapOf("query" to it) } ?: emptyMap()),
+        )
+        GuideCaption.post(getString(R.string.pick_app_opened, app.label), GuideCaption.Tone.INFO)
+        try {
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: android.content.ActivityNotFoundException) {
+            GuideSession.stop()
+            GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+        }
+    }
+
+    /**
+     * 로그인 방법이 여럿인 화면: 어르신께 꼭 물어봄 (해봄이 정하지 않음). 고르면 이 안내 동안 기억하고 그 단추를 짚음.
+     * 화면에 방법이 많으면 위에서 6개 + "다른 방법" (화면에서 직접 누르시게)
+     */
+    private var loginPickDismissed: String? = null
+
+    private fun askLoginMethod(step: AuthGuide.AuthStep) {
+        val names = step.options.map(AuthGuide::optionName).filter(String::isNotEmpty)
+        val shown = names.take(MAX_PICK_OPTIONS)
+        val other = getString(R.string.pick_other)
+        val unknown = getString(R.string.ask_unknown)
+        val extra = (if (names.size > shown.size) listOf(other) else emptyList()) + unknown
+        val key = "login:" + names.joinToString("|").hashCode()
+        // "다른 방법"·"모르겠어요" 를 고른 화면에서는 다시 묻지 않음 (화면에서 직접 누르시게)
+        if (key == loginPickDismissed) return
+        showPick(
+            key = key,
+            question = getString(R.string.pick_login_method),
+            options = shown,
+            extra = extra,
+        ) { picked ->
+            when (picked) {
+                other -> {
+                    loginPickDismissed = key
+                    GuideCaption.post(getString(R.string.pick_login_other), GuideCaption.Tone.INFO)
+                }
+                unknown -> {
+                    loginPickDismissed = key
+                    GuideCaption.post(getString(R.string.pick_login_unknown), GuideCaption.Tone.INFO)
+                }
+                else -> {
+                    GuideSession.addChoice(LOGIN_SLOT, picked)
+                    aiHistory.addLast(getString(R.string.history_elder_answer, picked))
+                    while (aiHistory.size > ScreenPayload.MAX_HISTORY) aiHistory.removeFirst()
+                    GuideCaption.post(getString(R.string.caption_answer_taken, picked), GuideCaption.Tone.INFO)
+                }
+            }
+            scheduleRefresh()
+        }
+    }
+
     // ───────────────────────── "이렇게 할까요?" 확인 ─────────────────────────
 
     /** 예를 기다리는 일 (말로 "네" 해도, 카드의 [예]를 눌러도 실행) */
@@ -1251,6 +1415,26 @@ class GuideService : AccessibilityService() {
     /** 주변 장소: 깔린 지도 앱(네이버 지도 → 카카오맵 → 구글 지도 → 웹)에서 내 위치 주변으로 검색. 위치는 지도 앱이 씀 */
     private fun openMapSearch(query: String) {
         GuideSession.stop()
+        // 깔린 지도 앱이 여럿이면 어느 앱으로 볼지 어르신이 고름 (하나면 바로)
+        val installedMaps = Search.mapUrls(query, packageName)
+            .filter { (_, pkg) -> pkg != null && packageManager.getLaunchIntentForPackage(pkg) != null }
+        if (installedMaps.size >= 2) {
+            val labels = installedMaps.associateBy { (_, pkg) -> appLabel(pkg!!) }
+            showPick(
+                key = "pick:map:$query",
+                question = getString(R.string.pick_app_map, query),
+                options = labels.keys.toList(),
+            ) { picked ->
+                val (url, pkg) = labels[picked] ?: return@showPick
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    GuideCaption.post(getString(R.string.caption_map_search, query), GuideCaption.Tone.DONE)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+                }
+            }
+            return
+        }
         for ((url, pkg) in Search.mapUrls(query, packageName)) {
             val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (pkg != null) {
@@ -1527,6 +1711,11 @@ class GuideService : AccessibilityService() {
          * 모델이 함께 읽으므로 "직접 입력한 뒤에는 이어서 안내" 원칙을 알려 줌.
          */
         const val SAFETY_SLOT = "rule"
+        /** 어르신이 고른 로그인 방법 (slots 로 AI 에도 감) */
+        const val LOGIN_SLOT = "login_method"
+        /** 고르기 카드에 한 번에 보여 줄 단추 수 (그 밖은 "다른 방법") */
+        const val MAX_PICK_OPTIONS = 6
+
         const val SAFETY_NOTE = "비밀번호·인증·결제 확정은 어르신이 직접 함. 입력이 끝나 민감한 입력이 없는 화면이면 이어서 다음 단계를 안내"
         /** 신청서처럼 칸이 여럿인 화면에서의 원칙 (100자 이내) */
         const val STATE_SLOT = "state"

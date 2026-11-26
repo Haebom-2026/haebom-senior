@@ -15,8 +15,10 @@ import java.util.Locale
  */
 internal object AuthGuide {
     enum class Kind {
-        /** 로그인 방법이 여럿: [AuthStep.arg] 에 방법 이름들, 짚지 않음 */
+        /** 로그인 방법이 여럿: 어르신께 꼭 물어봄 ([AuthStep.options]). 대신 고르지 않음 */
         CHOOSE_METHOD,
+        /** 어르신이 고른 방법의 단추를 짚음 */
+        PRESS_CHOSEN,
         /** 로그인을 시작하는 단추 ('로그인', '간편인증' 하나뿐일 때) */
         START,
         /** 보통 입력 칸 (아이디·이름 등): 직접 써 주세요 */
@@ -33,8 +35,16 @@ internal object AuthGuide {
         CONFIRM_ON_PHONE,
     }
 
-    /** [target] 짚을 요소 (없으면 말로만), [arg] 문장에 넣을 이름 */
-    data class AuthStep(val kind: Kind, val target: ScreenNode? = null, val arg: String = "")
+    /** [target] 짚을 요소 (없으면 말로만), [arg] 문장에 넣을 이름, [options] 고를 방법 단추들 (화면 위에서 아래 순서) */
+    data class AuthStep(
+        val kind: Kind,
+        val target: ScreenNode? = null,
+        val arg: String = "",
+        val options: List<ScreenNode> = emptyList(),
+    )
+
+    /** 방법 단추의 이름 (고르기 카드·말 대답에 씀) */
+    fun optionName(node: ScreenNode): String = name(node).orEmpty()
 
     private val METHODS = listOf(
         "간편인증", "간편로그인", "카카오", "네이버", "pass", "패스", "토스", "삼성패스", "페이코", "kb모바일",
@@ -51,8 +61,11 @@ internal object AuthGuide {
     private val WAITING = listOf("인증요청을보냈", "요청을보냈", "앱에서인증", "인증을완료한후", "인증을진행해", "알림을확인")
     private val AGREE = listOf("전체동의", "모두동의", "약관전체동의", "전체동의하기")
 
-    /** 로그인·인증 화면이면 다음 할 일, 아니면 null */
-    fun step(nodes: List<ScreenNode>): AuthStep? {
+    /**
+     * 로그인·인증 화면이면 다음 할 일, 아니면 null.
+     * [chosen] 이 안내에서 어르신이 이미 고른 방법들 ("카카오", "회원 신청하기"): 화면에 그 단추가 있으면 짚음
+     */
+    fun step(nodes: List<ScreenNode>, chosen: List<String> = emptyList()): AuthStep? {
         val fields = nodes.filter { it.editable && it.bounds?.size == 4 }.sortedBy { it.bounds!![1] }
         val buttons = nodes.filter { it.clickable && name(it) != null }
         val methods = buttons.filter { b -> norm(name(b)).let { n -> METHODS.any { it in n } && NOT_METHOD.none { it in n } } }
@@ -81,7 +94,9 @@ internal object AuthGuide {
         // 화면 위에서 아래 순서로 (읽어 드리는 순서가 화면과 같게)
         val distinct = methods.distinctBy { norm(name(it)) }.sortedBy { it.bounds?.getOrNull(1) ?: 0 }
         if (distinct.size >= 2) {
-            return AuthStep(Kind.CHOOSE_METHOD, arg = distinct.take(4).joinToString(", ") { name(it).orEmpty() })
+            val picked = distinct.firstOrNull { b -> chosen.any { norm(it).isNotEmpty() && norm(it) == norm(name(b)) } }
+            if (picked != null) return AuthStep(Kind.PRESS_CHOSEN, picked, name(picked).orEmpty())
+            return AuthStep(Kind.CHOOSE_METHOD, arg = distinct.take(4).joinToString(", ") { name(it).orEmpty() }, options = distinct)
         }
         val start = distinct.firstOrNull() ?: find(buttons, LOGIN) ?: return null
         return AuthStep(Kind.START, start, name(start).orEmpty())

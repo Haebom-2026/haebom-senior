@@ -64,6 +64,21 @@ internal object GuideSession {
         onChange?.invoke()
     }
 
+    /**
+     * 어르신이 앱 안 고르기 카드에서 고른 것 (예: 로그인 방법 "카카오"). AI 에도 slots 로 알려 줌.
+     * 같은 [key] 에 여러 번 고르면 쉼표로 이어 붙임 (간편인증 → 카카오)
+     */
+    fun addChoice(key: String, value: String) {
+        val current = active ?: return
+        val before = current.slots[key]
+        val joined = if (before.isNullOrBlank()) value else "$before, $value"
+        active = current.copy(slots = current.slots + (key to joined.take(100)))
+    }
+
+    /** [addChoice] 로 고른 것들 */
+    fun choices(key: String): List<String> =
+        active?.slots?.get(key)?.split(",")?.map(String::trim)?.filter(String::isNotEmpty).orEmpty()
+
     /** 보낸 대답을 비움 (다음 요청부터는 보내지 않음, 화면 표시는 그대로) */
     fun consumeUserReply(): String {
         val current = active ?: return ""

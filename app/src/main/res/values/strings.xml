@@ -233,6 +233,19 @@
     <string name="confirm_no">아니요</string>
     <string name="caption_sensitive_done">입력하셨네요. 이어서 안내할게요.</string>
     <!-- 로그인·인증 화면 안내 (AuthGuide). 비밀 칸은 해봄이 보지도 넣지도 않음 -->
+    <!-- 어르신이 고르기 (앱·로그인 방법). 해봄이 하나로 정하지 않음 -->
+    <string name="pick_title">💬 골라 주세요</string>
+    <string name="pick_other">다른 방법</string>
+    <string name="pick_app_music">어느 앱으로 들을까요?</string>
+    <string name="pick_app_taxi">어느 앱으로 택시를 부를까요?</string>
+    <string name="pick_app_map_plain">어느 지도 앱으로 볼까요?</string>
+    <string name="pick_app_map">‘%1$s’을(를) 어느 지도 앱으로 찾을까요?</string>
+    <string name="pick_app_none">맞는 앱이 폰에 없어서 인터넷에서 찾아 드릴게요.</string>
+    <string name="pick_app_opened">%1$s을(를) 열었어요. 이어서 안내할게요.</string>
+    <string name="pick_login_method">어떤 방법으로 로그인할까요? 평소 쓰시는 방법을 골라 주세요.</string>
+    <string name="pick_login_other">화면에서 쓰시는 방법을 직접 눌러 주세요.</string>
+    <string name="pick_login_unknown">평소 쓰시는 방법을 모르시면 가족에게 물어보세요. 정해지면 화면에서 눌러 주세요.</string>
+    <string name="auth_press_chosen">고르신 ‘%1$s’을(를) 눌러 주세요.</string>
     <string name="auth_choose_method">로그인 방법을 고르는 화면이에요. 평소 쓰시는 방법을 직접 골라 눌러 주세요: %1$s</string>
     <string name="auth_start">‘%1$s’를 눌러 로그인을 시작하세요.</string>
     <string name="auth_type_field">‘%1$s’ 칸을 눌러 직접 써 주세요.</string>
