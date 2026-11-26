@@ -69,9 +69,9 @@ class DevViewerActivity : Activity() {
             textSize = 18f
             setOnClickListener {
                 val sender = client ?: return@setOnClickListener
-                guideResult.text = "보내는 중… (${sender.lastAppPackage ?: "화면 없음"})"
+                guideResult.text = "보내는 중… ${sender.guideScreenSource}"
                 sender.sendGuideTest("YOUTUBE", "유튜브에서 트로트 검색해 줘", mapOf("query" to "트로트")) {
-                    guideResult.text = "보낸 화면: ${sender.lastAppPackage}\n응답: $it"
+                    guideResult.text = "보낸 화면: ${sender.guideScreenSource}\n응답: $it"
                 }
             }
         })

@@ -29,4 +29,14 @@ class GuideTaskTest {
         assertFalse(GuideTask.isHelpCommand("이 화면 좀 도와줘"))
         assertFalse("01012345678" in GuideTask.CONTACTS.allowedLabels)
     }
+    @Test
+    fun gov24WebFallbackOpensInChromeAndChromeCountsAsGov24WhileGuiding() {
+        assertEquals("https://plus.gov.kr", GuideTask.GOV24.webUrl)
+        assertNull(GuideTask.YOUTUBE.webUrl)
+        GuideSession.stop()
+        assertNull(GuideTask.forPackage("com.android.chrome"))
+        GuideSession.start(GuideTask.GOV24, "com.android.chrome")
+        assertEquals(GuideTask.GOV24, GuideTask.forPackage("com.android.chrome"))
+        GuideSession.stop()
+    }
 }

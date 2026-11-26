@@ -11,12 +11,17 @@ internal enum class GuideTask(val appPackage: String?) {
     YOUTUBE("com.google.android.youtube"),
     GOV24("kr.go.minwon.m");
 
+    /** 앱이 없을 때 대신 여는 웹 주소 (크롬으로 엶) */
+    val webUrl: String?
+        get() = if (this == GOV24) "https://plus.gov.kr" else null
+
     fun newIntent(packageManager: PackageManager): Intent? {
         val destination = appPackage
         return if (destination == null) {
             Intent(Intent.ACTION_INSERT).setType(ContactsContract.Contacts.CONTENT_TYPE)
         } else {
             packageManager.getLaunchIntentForPackage(destination)
+                ?: webUrl?.let { kr.haebom.elder.Browser.intent(packageManager, it) }
         }
     }
 
@@ -112,6 +117,8 @@ internal enum class GuideTask(val appPackage: String?) {
         }
 
         fun forPackage(packageName: String?): GuideTask? = when {
+            // 크롬에서 정부24 웹을 안내 중이면 크롬도 정부24 안내로 봄
+            packageName == kr.haebom.elder.Browser.CHROME && GuideSession.active?.task == GOV24 -> GOV24
             packageName in CONTACT_PACKAGES -> CONTACTS
             packageName != null && packageName == YOUTUBE.appPackage -> YOUTUBE
             packageName != null && packageName == GOV24.appPackage -> GOV24
