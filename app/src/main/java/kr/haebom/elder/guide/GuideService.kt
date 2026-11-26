@@ -553,7 +553,10 @@ class GuideService : AccessibilityService() {
             return getString(R.string.caption_done_search, query)
         }
         val app = active.slots["app"]
-        if (active.goal == GuideTask.GOAL_OPEN_APP && app != null && GuideTask.isSameApp(app, appLabel(foreground))) {
+        // 앱을 열어 달라고만 했을 때만 그 앱이 뜨면 끝 ("네이버지도에서 근처 병원 가고 싶어" 는 길찾기까지 이어 감)
+        if (active.goal == GuideTask.GOAL_OPEN_APP && app != null && GuideTask.openOnlyApp(active.utterance) != null &&
+            GuideTask.isSameApp(app, appLabel(foreground))
+        ) {
             return getString(R.string.caption_done_open_app, appLabel(foreground))
         }
         return null
@@ -1274,7 +1277,7 @@ class GuideService : AccessibilityService() {
             }
             // 애매한 말은 짐작한 뜻을 예/아니요로 물음
             is CommandRoute.WebSearch -> openWebSearch(route.web)
-            is CommandRoute.MapSearch -> openMapSearch(route.query)
+            is CommandRoute.MapSearch -> openMapSearch(route.query, spoken)
             is CommandRoute.Guess -> askWhere(spoken, route.query, route.options, foreground)
             CommandRoute.Ai -> confirmAi(spoken, foreground)
         }
@@ -1678,8 +1681,10 @@ class GuideService : AccessibilityService() {
             return
         }
         GuideSession.stop()
+        // "지도 열어 줘" 처럼 열기만 바란 말은 그 앱이 뜨면 끝, "길 찾아 줘" 는 그 앱에서 이어 감
+        val openOnly = GuideTask.openOnlyApp(spoken) != null
         GuideSession.startAi(
-            utterance = "${app.label}에서 $spoken".take(200),
+            utterance = (if (openOnly) "${app.label} 열어 줘" else "${app.label}에서 $spoken").take(200),
             goal = GuideTask.GOAL_OPEN_APP,
             slots = mapOf("app" to app.label) + (route.query?.let { mapOf("query" to it) } ?: emptyMap()),
         )
@@ -1753,8 +1758,11 @@ class GuideService : AccessibilityService() {
         }
     }
 
-    /** 주변 장소: 깔린 지도 앱(네이버 지도 → 카카오맵 → 구글 지도 → 웹)에서 내 위치 주변으로 검색. 위치는 지도 앱이 씀 */
-    private fun openMapSearch(query: String) {
+    /**
+     * 주변 장소: 깔린 지도 앱(네이버 지도 → 카카오맵 → 구글 지도 → 웹)에서 내 위치 주변으로 검색. 위치는 지도 앱이 씀.
+     * 연 뒤에도 안내는 이어 감 (장소 고르기 → 길찾기, 검색이 안 됐으면 검색창 + 검색어 단추)
+     */
+    private fun openMapSearch(query: String, spoken: String) {
         GuideSession.stop()
         // 깔린 지도 앱이 여럿이면 어느 앱으로 볼지 어르신이 고름 (하나면 바로)
         val installedMaps = Search.mapUrls(query, packageName)
@@ -1767,30 +1775,48 @@ class GuideService : AccessibilityService() {
                 options = labels.keys.toList(),
             ) { picked ->
                 val (url, pkg) = labels[picked] ?: return@showPick
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    GuideCaption.post(getString(R.string.caption_map_search, query), GuideCaption.Tone.DONE)
-                } catch (_: android.content.ActivityNotFoundException) {
+                if (!openMapApp(url, pkg, query, spoken)) {
                     GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
                 }
             }
             return
         }
         for ((url, pkg) in Search.mapUrls(query, packageName)) {
-            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (pkg != null) {
-                if (packageManager.getLaunchIntentForPackage(pkg) == null) continue
-                intent.setPackage(pkg)
-            }
-            try {
-                startActivity(intent)
-                GuideCaption.post(getString(R.string.caption_map_search, query), GuideCaption.Tone.DONE)
-                return
-            } catch (_: android.content.ActivityNotFoundException) {
-                // 다음 지도 앱으로
-            }
+            if (pkg != null && packageManager.getLaunchIntentForPackage(pkg) == null) continue
+            if (openMapApp(url, pkg, query, spoken)) return
+            // 열리지 않으면 다음 지도 앱으로
         }
         GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+    }
+
+    /**
+     * 지도 앱을 검색 주소로 열고 화면 안내(AI)를 시작함. 말한 문장 그대로 맡김 ("근처 병원 가고 싶어" → 길찾기까지),
+     * 검색어는 slots.query 로 (검색창을 짚으면 "자동완성 입력" 단추로 보임). 서버가 없으면 열기만
+     */
+    private fun openMapApp(url: String, pkg: String?, query: String, spoken: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        pkg?.let(intent::setPackage)
+        val label = pkg?.let(::appLabel)
+        val guide = HaebomServer.api != null
+        if (guide) {
+            GuideSession.startAi(
+                utterance = ((label?.let { "${it}에서 " } ?: "") + spoken).take(200),
+                goal = GuideTask.GOAL_OPEN_APP,
+                slots = mapOf("query" to query) + (label?.let { mapOf("app" to it) } ?: emptyMap()),
+            )
+        }
+        return try {
+            startActivity(intent)
+            android.util.Log.d(TAG, "지도 검색 열기: ${label ?: "웹"} (안내 ${if (guide) "이어 감" else "없음"})")
+            GuideCaption.post(
+                getString(if (guide) R.string.caption_map_search_guide else R.string.caption_map_search, query),
+                if (guide) GuideCaption.Tone.INFO else GuideCaption.Tone.DONE,
+            )
+            true
+        } catch (_: android.content.ActivityNotFoundException) {
+            if (guide) GuideSession.stop()
+            false
+        }
     }
 
     /** 애매한 검색 말: 어디서 찾을지 고르게 함 (가능성 높은 곳이 맨 위, 말로 "네"면 맨 위) */
@@ -1808,7 +1834,7 @@ class GuideService : AccessibilityService() {
                     { openWebSearch(Search.Web(query, Search.Engine.NAVER)) }
                 }
                 Search.Where.MAP -> {
-                    { openMapSearch(query) }
+                    { openMapSearch(query, spoken) }
                 }
             }
         }

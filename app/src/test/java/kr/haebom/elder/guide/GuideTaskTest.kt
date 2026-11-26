@@ -167,6 +167,10 @@ class GuideTaskTest {
         assertEquals("정부24", GuideTask.openOnlyApp("정부24 열어 줘"))
         assertEquals("카카오톡", GuideTask.openOnlyApp("카카오톡 앱을 실행해 주세요."))
         assertEquals("유튜브", GuideTask.openOnlyApp("유튜브 좀 켜 줘"))
+        // 지도 앱을 고른 뒤의 안내 문장: 열기만이 아니면 앱이 떠도 안내를 끝내지 않음
+        assertEquals(null, GuideTask.openOnlyApp("네이버지도에서 근처 병원 가고 싶어"))
+        assertEquals(null, GuideTask.openOnlyApp("카카오맵에서 길 찾아 줘"))
+        assertEquals("네이버지도", GuideTask.openOnlyApp("네이버지도 열어 줘"))
         assertNull(GuideTask.openOnlyApp("유튜브 켜서 임영웅 찾아 줘"))
         assertNull(GuideTask.openOnlyApp("정부24에서 등본 열어 줘"))
         assertNull(GuideTask.openOnlyApp("임영웅 노래 틀어 줘"))

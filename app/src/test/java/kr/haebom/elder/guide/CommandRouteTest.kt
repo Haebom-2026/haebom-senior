@@ -80,6 +80,13 @@ class CommandRouteTest {
         assertEquals(CommandRoute.MapSearch("헬스장"), CommandRoute.of("가까운 헬스장 찾아 줘", null, aiAvailable = true))
         // "근처 은행" 은 금융 경고가 아니라 장소 찾기
         assertEquals(CommandRoute.MapSearch("은행"), CommandRoute.of("근처 은행 어디 있어", null, aiAvailable = true))
+        // 가고 싶다는 말은 검색어에서 빼고 지도로 (2026-11-27 폰: "병원 가고 싶어" 가 그대로 검색어가 됨)
+        assertEquals(CommandRoute.MapSearch("병원"), CommandRoute.of("근처 병원 가고 싶어", null, aiAvailable = true))
+        assertEquals(CommandRoute.MapSearch("병원"), CommandRoute.of("병원 가고 싶어", null, aiAvailable = true))
+        assertEquals(CommandRoute.MapSearch("약국"), CommandRoute.of("약국에 가려고 해", null, aiAvailable = true))
+        assertEquals(CommandRoute.MapSearch("보건소"), CommandRoute.of("가까운 보건소 가려면", null, aiAvailable = true))
+        // 장소 이름 끝 글자는 자르지 않음 ("종로" 의 "로")
+        assertEquals(CommandRoute.MapSearch("종로 우체국"), CommandRoute.of("종로 우체국 가고 싶어", null, aiAvailable = true))
         // 장소 이름 + 찾아 줘 → 지도 먼저, 지식 질문 → 인터넷 먼저
         assertEquals(CommandRoute.Guess("약국", listOf(Search.Where.MAP, Search.Where.WEB)), CommandRoute.of("약국 찾아 줘", null, aiAvailable = true))
         assertEquals(CommandRoute.Guess("오늘 날씨", listOf(Search.Where.WEB, Search.Where.YOUTUBE)), CommandRoute.of("오늘 날씨 알려 줘", null, aiAvailable = true))

@@ -319,6 +319,7 @@
     <string name="choice_map">🗺 지도에서 내 주변 찾기</string>
     <string name="caption_web_search">‘%1$s’ 검색 결과를 열었어요. 보고 싶은 것을 눌러 보세요.</string>
     <string name="caption_map_search">‘%1$s’을(를) 지도에서 찾았어요. 가까운 곳부터 보여요.</string>
+    <string name="caption_map_search_guide">‘%1$s’을(를) 지도에서 찾을게요. 화면을 보면서 길찾기까지 안내해 드릴게요.</string>
     <string name="ask_title">💬 여쭤볼게요</string>
     <string name="ask_unknown">모르겠어요</string>
     <string name="ask_open_hint">마이크를 누르고 말로 대답해 주세요.</string>

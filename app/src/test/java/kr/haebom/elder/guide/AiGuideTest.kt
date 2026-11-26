@@ -44,6 +44,19 @@ class AiGuideTest {
     }
 
     @Test
+    fun aLabelOutsideTheUnlabelledFrameWins() {
+        // 네이버 지도 장소 카드: [출발] [도착] [예약 틀]. "도착" 이라 하고 번호는 글자 없는 '예약' 틀 (2026-11-27 폰)
+        val start = ScreenNode(text = "출발", clickable = true, bounds = intArrayOf(50, 1810, 250, 1920))
+        val arrive = ScreenNode(text = "도착", clickable = true, bounds = intArrayOf(270, 1810, 460, 1920))
+        val frame = ScreenNode(className = "ViewGroup", clickable = true, bounds = intArrayOf(480, 1810, 710, 1920))
+        val reserve = ScreenNode(text = "예약", bounds = intArrayOf(540, 1840, 660, 1890))
+        val nodes = listOf(start, arrive, frame, reserve)
+        assertSame(arrive, AiReply.findTarget(AiReply(1, "highlight", "", target = 2, targetText = "도착"), nodes))
+        // 틀 안의 글자를 주면 틀 그대로
+        assertSame(frame, AiReply.findTarget(AiReply(1, "highlight", "", target = 2, targetText = "예약"), nodes))
+    }
+
+    @Test
     fun targetIsCheckedAgainstItsText() {
         val nodes = listOf(
             ScreenNode(description = "알림", clickable = true),
@@ -56,6 +69,8 @@ class AiGuideTest {
         // 틀 안의 글자를 targetText 로 주면 틀 자체를 그대로 씀
         assertSame(nodes[2], AiReply.findTarget(AiReply(1, "highlight", "", target = 2, targetText = "디스플레이"), nodes))
         assertNull(AiReply.findTarget(AiReply(1, "highlight", "", target = 9, targetText = "없는 단추"), nodes))
+        // 번호만 오면 번호 그대로
+        assertSame(nodes[0], AiReply.findTarget(AiReply(1, "highlight", "", target = 0), nodes))
         assertNull(AiReply.findTarget(AiReply(1, "say", ""), nodes))
     }
 

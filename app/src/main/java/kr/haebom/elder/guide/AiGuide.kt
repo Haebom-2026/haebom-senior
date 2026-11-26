@@ -95,10 +95,25 @@ internal data class AiReply(
             val index = reply.target ?: return null
             val wanted = reply.targetText
             val byIndex = nodes.getOrNull(index)
-            if (byIndex != null && (wanted == null || label(byIndex) == null || label(byIndex) == wanted)) return byIndex
-            if (wanted == null) return null
+            if (wanted == null) return byIndex
+            val indexLabel = byIndex?.let(::label)
+            if (byIndex != null && indexLabel == wanted) return byIndex
             val same = nodes.filter { label(it) == wanted }
+            if (byIndex != null && indexLabel == null) {
+                // 글자 없는 눌리는 틀: 그 글자가 틀 안에 있으면(또는 화면에 그 글자가 없으면) 틀 그대로.
+                // 글자가 틀 밖에 있으면 그 글자를 짚음 (2026-11-27 네이버 지도: '도착' 이라 하고 옆 '예약' 틀을 짚음)
+                if (same.isEmpty() || same.any { inside(it, byIndex) }) return byIndex
+            }
             return same.firstOrNull { it.clickable } ?: same.firstOrNull()
+        }
+
+        /** [inner] 의 가운데가 [outer] 안에 있는지 (자리를 모르면 false) */
+        private fun inside(inner: ScreenNode, outer: ScreenNode): Boolean {
+            val a = inner.bounds ?: return false
+            val b = outer.bounds ?: return false
+            val x = (a[0] + a[2]) / 2
+            val y = (a[1] + a[3]) / 2
+            return x in b[0]..b[2] && y in b[1]..b[3]
         }
 
         private fun label(node: ScreenNode): String? =
@@ -146,7 +161,7 @@ internal class AiGuideClient(private val api: HaebomApi) {
                 else -> AiOutcome.Reply(parsed)
             }
             val summary = when (outcome) {
-                is AiOutcome.Reply -> outcome.reply.let { "${it.type} target=${it.target} '${it.say}'" }
+                is AiOutcome.Reply -> outcome.reply.let { "${it.type} target=${it.target}${it.targetText?.let { t -> "('$t')" }.orEmpty()} '${it.say}'" }
                 is AiOutcome.Failed -> outcome.reason
             }
             Log.i(TAG, "AI #$id $goal → $summary (${elapsed}ms)")
