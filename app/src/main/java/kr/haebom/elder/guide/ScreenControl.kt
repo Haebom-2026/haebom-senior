@@ -1,6 +1,7 @@
 package kr.haebom.elder.guide
 
 import android.graphics.Rect
+import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
 
 internal data class ScreenControl(val labels: Set<String>, val bounds: Rect, val clickable: Boolean) {
@@ -15,28 +16,31 @@ internal data class GuideScreen(
         private const val MAX_NODES = 350
 
         @Suppress("DEPRECATION") // Older Android versions pool AccessibilityNodeInfo objects.
-        fun read(root: AccessibilityNodeInfo): GuideScreen {
+        fun read(root: AccessibilityNodeInfo, task: GuideTask): GuideScreen {
             val controls = mutableListOf<ScreenControl>()
             var hasPassword = false
             var visited = 0
+            val allowlistedLabels = task.allowedLabels
 
             fun inspect(node: AccessibilityNodeInfo) {
                 if (++visited > MAX_NODES || !node.isVisibleToUser) return
-                if (node.isPassword) {
+                if (node.isPassword || isProtectedInput(node.inputType) ||
+                    isProtectedId(node.viewIdResourceName)
+                ) {
                     hasPassword = true
                     return
                 }
 
                 // Inspect controls only. Text already entered into a field stays in its app.
-                if (node.isEditable) return
+                if (node.isEditable || node.className == "android.widget.EditText") return
                 if (node.isEnabled) {
                     val bounds = Rect()
                     node.getBoundsInScreen(bounds)
                     val labels = setOfNotNull(
                         node.viewIdResourceName?.substringAfterLast('/'),
-                        node.text?.toString()?.takeIf { node.isClickable || it.length <= 32 },
-                        node.contentDescription?.toString(),
-                    ).filter { it.length <= 64 }.mapTo(mutableSetOf(), GuideTask::normalize)
+                        node.text?.takeIf { it.length <= 64 }?.toString(),
+                        node.contentDescription?.takeIf { it.length <= 64 }?.toString(),
+                    ).map(GuideTask::normalize).filterTo(mutableSetOf(), allowlistedLabels::contains)
                     if (labels.isNotEmpty() && !bounds.isEmpty) {
                         controls += ScreenControl(labels, bounds, node.isClickable)
                     }
@@ -54,7 +58,22 @@ internal data class GuideScreen(
             }
 
             inspect(root)
-            return GuideScreen(controls, hasPassword)
+            return GuideScreen(if (hasPassword) emptyList() else controls, hasPassword)
+        }
+        private fun isProtectedInput(type: Int): Boolean {
+            val variation = type and InputType.TYPE_MASK_VARIATION
+            return when (type and InputType.TYPE_MASK_CLASS) {
+                InputType.TYPE_CLASS_TEXT -> variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                else -> false
+            }
+        }
+
+        private fun isProtectedId(resource: String?): Boolean {
+            val id = resource?.substringAfterLast('/')?.lowercase(java.util.Locale.ROOT) ?: return false
+            return listOf("password", "passcode", "otp_code", "ssn", "resident_number").any { it in id }
         }
     }
 }

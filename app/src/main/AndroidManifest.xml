@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
         <package android:name="com.google.android.youtube" />
         <package android:name="kr.go.minwon.m" />
         <intent>
@@ -22,6 +26,11 @@
         <activity
             android:name=".GuidePracticeActivity"
             android:exported="false" />
+        <activity
+            android:name=".GuideInputActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <service
             android:name=".guide.GuideService"
             android:exported="true"

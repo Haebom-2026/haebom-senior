@@ -2,7 +2,7 @@
     <string name="app_name">해봄 어르신</string>
     <string name="guide_service_name">해봄 화면 안내</string>
     <string name="guide_service_description">안내를 시작하면 눌러야 할 버튼을 찾아 빨간 테두리와 자막으로 알려 드려요.</string>
-    <string name="guide_enabled">화면 안내가 켜져 있어요. 원하는 안내를 선택해 주세요.</string>
+    <string name="guide_enabled">화면 안내가 켜져 있어요. 다른 앱 위의 마이크를 눌러 요청해 보세요.</string>
     <string name="guide_disabled">접근성 설정에서 해봄 화면 안내를 켜 주세요.</string>
     <string name="open_accessibility_settings">접근성 설정 열기</string>
     <string name="open_practice">화면 안내 연습</string>
@@ -49,4 +49,26 @@
     <string name="firebase_firestore_failed">익명 로그인은 성공했지만 Firestore 읽기에 실패했어요. (%1$s)</string>
     <string name="firebase_connected">Firebase 익명 로그인과 내 Firestore 프로필 읽기에 성공했어요.</string>
     <string name="firebase_profile_missing">Firebase 익명 로그인과 Firestore 읽기에 성공했어요. 이 계정의 프로필은 아직 없어요.</string>
+    <string name="voice_permission_denied">마이크 권한이 없어요. 요청을 글로 입력할 수 있어요.</string>
+    <string name="voice_listening">듣고 있어요. 필요한 도움을 말해 주세요.</string>
+    <string name="voice_processing">말씀하신 요청을 확인하고 있어요.</string>
+    <string name="voice_device_unavailable">기기 내 한국어 음성 인식을 사용할 수 없어요. 요청을 글로 입력해 주세요.</string>
+    <string name="voice_tap">말하기</string>
+    <string name="voice_request_hint">예: 이 화면 안내해 줘</string>
+    <string name="voice_submit">안내 요청</string>
+    <string name="floating_mic">마이크</string>
+    <string name="floating_sos">SOS</string>
+    <string name="guide_bank_stop">금융 화면에서는 해봄이 화면을 읽거나 입력을 안내하지 않아요. 도움이 필요하면 보호자에게 문의해 주세요.</string>
+    <string name="guide_contact_add">빨간 테두리의 새 연락처 버튼을 눌러 주세요.</string>
+    <string name="guide_location">화면 %1$s에 있어요.</string>
+    <string name="guide_caption_with_location">%1$s %2$s</string>
+    <string name="guide_top_left">왼쪽 위</string>
+    <string name="guide_top_center">가운데 위</string>
+    <string name="guide_top_right">오른쪽 위</string>
+    <string name="guide_center_left">왼쪽 가운데</string>
+    <string name="guide_center">가운데</string>
+    <string name="guide_center_right">오른쪽 가운데</string>
+    <string name="guide_bottom_left">왼쪽 아래</string>
+    <string name="guide_bottom_center">가운데 아래</string>
+    <string name="guide_bottom_right">오른쪽 아래</string>
 </resources>

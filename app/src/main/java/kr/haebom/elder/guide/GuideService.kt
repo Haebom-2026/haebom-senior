@@ -1,7 +1,9 @@
 package kr.haebom.elder.guide
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -14,6 +16,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
 import android.widget.TextView
+import kr.haebom.elder.GuideInputActivity
 import kr.haebom.elder.R
 
 class GuideService : AccessibilityService() {
@@ -26,7 +29,14 @@ class GuideService : AccessibilityService() {
     }
     private var highlight: View? = null
     private var highlightedTarget: Target? = null
-    private var spokenCaption: Pair<Int, Int>? = null
+    private var spokenCaption: Pair<Int, String>? = null
+    private val floatingControls by lazy {
+        FloatingGuideControls(
+            context = this,
+            onMicrophone = { openInput(sos = false) },
+            onSos = { openInput(sos = true) },
+        )
+    }
     private var voice: GuideVoice? = null
     private val sessionChanged: () -> Unit = {
         stopHighlighting()
@@ -61,6 +71,13 @@ class GuideService : AccessibilityService() {
         scheduleRefresh()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        floatingControls.hide()
+        stopHighlighting()
+        scheduleRefresh()
+    }
+
     override fun onInterrupt() {
         stopHighlighting()
     }
@@ -84,6 +101,7 @@ class GuideService : AccessibilityService() {
     }
 
     private fun refreshHighlight() {
+        syncFloatingControls()
         val target = findTarget()
         if (target == highlightedTarget) return
         clearHighlight()
@@ -107,17 +125,64 @@ class GuideService : AccessibilityService() {
         }
         highlight = view
         highlightedTarget = target
-        val caption = target.caption
+        val caption = captionText(target)
         if (caption != null && spokenCaption != (target.windowId to caption)) {
             spokenCaption = target.windowId to caption
             if (voice == null) voice = GuideVoice(this)
-            voice?.speak(getString(caption))
+            voice?.speak(caption)
         }
+    }
+
+    private fun syncFloatingControls() {
+        val activePackage = activeScreenPackage()
+        val locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
+        if (!locked && activePackage != null && activePackage != packageName &&
+            activePackage != "com.android.systemui" && activePackage != "android"
+        ) {
+            floatingControls.show()
+        } else {
+            floatingControls.hide()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun activeScreenPackage(): String? {
+        val root = rootInActiveWindow ?: return null
+        return try {
+            root.packageName?.toString()
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun openInput(sos: Boolean) {
+        val current = activeScreenPackage()
+        stopHighlighting()
+        floatingControls.hide()
+        startActivity(
+            GuideInputActivity.intent(this, sos, current).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    private fun captionText(target: Target): String? {
+        val caption = target.caption ?: return null
+        val text = getString(caption)
+        val bounds = target.bounds ?: return text
+        val metrics = resources.displayMetrics
+        val columns = listOf(
+            listOf(R.string.guide_top_left, R.string.guide_top_center, R.string.guide_top_right),
+            listOf(R.string.guide_center_left, R.string.guide_center, R.string.guide_center_right),
+            listOf(R.string.guide_bottom_left, R.string.guide_bottom_center, R.string.guide_bottom_right),
+        )
+        val row = (bounds.centerY() * 3 / metrics.heightPixels.coerceAtLeast(1)).coerceIn(0, 2)
+        val column = (bounds.centerX() * 3 / metrics.widthPixels.coerceAtLeast(1)).coerceIn(0, 2)
+        val position = getString(R.string.guide_location, getString(columns[row][column]))
+        return getString(R.string.guide_caption_with_location, text, position)
     }
 
     private fun createOverlay(target: Target): View {
         val outline = GuideHighlightView(this, target.bounds)
-        val caption = target.caption ?: return outline
+        val caption = captionText(target) ?: return outline
         val density = resources.displayMetrics.density
         val padding = (12 * density).toInt()
         val bounds = target.bounds
@@ -132,7 +197,7 @@ class GuideService : AccessibilityService() {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
             ))
             addView(TextView(context).apply {
-                setText(caption)
+                text = caption
                 textSize = 21f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
@@ -159,7 +224,7 @@ class GuideService : AccessibilityService() {
             if (screenPackage != packageName) {
                 val active = GuideSession.active ?: return null
                 if (active.packageName != screenPackage) return null
-                val screen = GuideScreen.read(root)
+                val screen = GuideScreen.read(root, active.task)
                 val step = active.task.findStep(screen.controls, screen.hasPasswordField)
                 return Target(root.windowId, screenPackage, step.control?.bounds, step.caption)
             }
@@ -214,6 +279,7 @@ class GuideService : AccessibilityService() {
     private fun disconnect() {
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
+        floatingControls.hide()
         stopHighlighting()
     }
 
