@@ -746,6 +746,7 @@ class GuideService : AccessibilityService() {
         lastForeground = pkg
         if (pkg == packageName) return
         val assessment = Sensitivity.fromApp(pkg)
+        if (assessment.level.askFirst || assessment.level.alertNow) android.util.Log.d(TAG, "민감 앱 들어옴: $pkg ${assessment.level}")
         when {
             assessment.level.alertNow -> {
                 if (!SensitiveAlerter.claim(SensitiveAlerter.keyFor(assessment, pkg))) return
@@ -753,8 +754,15 @@ class GuideService : AccessibilityService() {
                 handler.postDelayed({ SensitiveAlerter.send(this, assessment, appLabel(pkg), pkg) }, 3_000)
             }
             assessment.level.askFirst -> {
-                if (!settings.sensitiveAlerts || Family.gateway == null) return
-                if (!SensitiveAlerter.claim("ask:$pkg")) return
+                if (!settings.sensitiveAlerts || Family.gateway == null) {
+                    android.util.Log.d(TAG, "동의 카드 안 띄움: 설정 꺼짐=${!settings.sensitiveAlerts} 연동 없음=${Family.gateway == null}")
+                    return
+                }
+                if (!SensitiveAlerter.claim("ask:$pkg")) {
+                    android.util.Log.d(TAG, "동의 카드 안 띄움: 5분 안에 이미 물음")
+                    return
+                }
+                android.util.Log.d(TAG, "동의 카드 띄움: $pkg")
                 ConsentPrompt.show(card, this, pkg, appLabel(pkg), assessment.category)
             }
         }

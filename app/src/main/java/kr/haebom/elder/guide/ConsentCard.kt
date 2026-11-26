@@ -40,6 +40,12 @@ internal class OverlayCard(private val context: Context) {
         accent: Int = ElderUi.NAVY,
     ) {
         if (shownKey == key && view != null) return
+        // "보호자에게 알릴까요?" 카드는 AI 질문 카드로 덮지 않음: 덮으면 5분 동안 다시 묻지 않아 놓치게 됨.
+        // 질문은 자막·음성으로 그대로 나오고, 동의 카드에 답하면 다음 화면 갱신 때 질문 카드가 뜸
+        if (view != null && shownKey?.startsWith("consent:") == true && key.startsWith("ask:")) {
+            android.util.Log.d("HaebomGuide", "카드 미룸: $key (동의 카드에 먼저 답해야 함)")
+            return
+        }
         hide()
         val pad = ElderUi.dp(context, 22)
         val card = LinearLayout(context).apply {
@@ -83,6 +89,8 @@ internal class OverlayCard(private val context: Context) {
 
     fun hide() {
         val current = view ?: return
+        // 어느 카드를 누가 닫았는지 추적용
+        android.util.Log.d("HaebomGuide", "카드 닫음: $shownKey ← ${Throwable().stackTrace.getOrNull(1)}")
         view = null
         shownKey = null
         manager.removeViewImmediate(current)
