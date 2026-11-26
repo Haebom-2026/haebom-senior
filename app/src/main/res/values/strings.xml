@@ -91,6 +91,9 @@
     <string name="caption_unrecognized">잘 못 알아들었어요. 한 번 더 천천히 말씀해 주세요. 예: 유튜브에서 검색해 줘</string>
     <string name="caption_no_speech">말씀이 들리지 않았어요. 말하기 단추를 누르고 다시 말씀해 주세요.</string>
     <string name="caption_heard_task">“%1$s” 알겠어요. %2$s</string>
+    <string name="caption_ai_started">화면을 보면서 눌러야 할 곳을 하나씩 알려 드릴게요.</string>
+    <string name="caption_ai_waiting">잠깐만요, 화면을 살펴보고 있어요.</string>
+    <string name="caption_ai_failed">제가 화면을 잘 못 알아봤어요. 다시 말씀해 주시겠어요?</string>
     <string name="caption_sos">보호자에게 보낼 도움 요청 문자를 준비할게요.</string>
     <string name="caption_sos_off">도움 요청 버튼이 꺼져 있어요. 메인 화면 설정에서 켤 수 있어요.</string>
     <string name="caption_scam">사기일 수 있어요. 돈을 보내거나 앱을 설치하기 전에 보호자에게 먼저 연락해 주세요.</string>

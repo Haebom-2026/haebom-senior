@@ -29,6 +29,7 @@ import kr.haebom.elder.family.SosContact
 import kr.haebom.elder.guide.GuideCaption
 import kr.haebom.elder.guide.GuideSession
 import kr.haebom.elder.guide.GuideTask
+import kr.haebom.elder.net.HaebomServer
 import kr.haebom.elder.ui.ElderUi
 
 /**
@@ -221,7 +222,14 @@ class GuideInputActivity : Activity() {
             return
         }
         val task = GuideTask.forCommand(spoken, foregroundPackage)
-        if (task == null) {
+        if (task == null && HaebomServer.api != null) {
+            // 앱이 모르는 일: 화면 안내 AI 가 지금 화면을 보고 하나씩 안내
+            handlingResult = true
+            val text = getString(R.string.caption_heard_task, spoken, getString(R.string.caption_ai_started))
+            status?.text = text
+            GuideCaption.post(text, GuideCaption.Tone.INFO)
+            startAiGuide(this, spoken, foregroundPackage, ::finish)
+        } else if (task == null) {
             handlingResult = false
             setStatus(R.string.caption_unrecognized, GuideCaption.Tone.WARN)
         } else {
@@ -231,7 +239,7 @@ class GuideInputActivity : Activity() {
             status?.text = text
             GuideCaption.post(text, GuideCaption.Tone.INFO)
             val query = if (task == GuideTask.YOUTUBE) GuideTask.youtubeQuery(spoken) else null
-            startGuide(this, task, foregroundPackage, ::finish, announce = false, query = query)
+            startGuide(this, task, foregroundPackage, ::finish, announce = false, query = query, utterance = spoken)
         }
     }
 

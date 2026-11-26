@@ -3,19 +3,18 @@ package kr.haebom.elder.dev
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.graphics.Point
-import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityNodeInfo
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import kr.haebom.elder.guide.DevScreenSink
-import kr.haebom.elder.guide.GuideScreen
+import kr.haebom.elder.guide.CapturedScreen
 import kr.haebom.elder.guide.GuideTask
+import kr.haebom.elder.guide.ScreenPayload
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
@@ -69,7 +68,7 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
             done("보내지 않음: 아직 읽은 다른 앱 화면이 없어요. 화면 안내를 켜고 다른 앱을 한 번 열어 주세요.")
             return
         }
-        val body = DevScreenPayload.guide(++guideRequestId, goal, utterance, slots, screen)
+        val body = ScreenPayload.guide(++guideRequestId, goal, utterance, slots, screen)
         io.execute {
             val started = System.currentTimeMillis()
             val result = post("/v1/elder/guide", body)
@@ -82,7 +81,7 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
     private val heartbeatLoop = object : Runnable {
         override fun run() {
             if (!enabled || service == null) return
-            val body = DevScreenPayload.heartbeat(deviceId, Build.MODEL, "Android ${Build.VERSION.RELEASE}", appVersion())
+            val body = ScreenPayload.heartbeat(deviceId, Build.MODEL, "Android ${Build.VERSION.RELEASE}", appVersion())
             io.execute { lastHeartbeat = describe(post("/v1/dev/heartbeat", body)) }
             main.postDelayed(this, HEARTBEAT_MS)
         }
@@ -136,55 +135,16 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
         try {
             val pkg = root.packageName?.toString() ?: return null
             if (GuideTask.isFinance(pkg, "")) return null
-            val nodes = mutableListOf<DevNode>()
-            var visited = 0
-            var blocked = false
-
-            fun visit(node: AccessibilityNodeInfo) {
-                if (blocked || ++visited > MAX_VISIT || !node.isVisibleToUser) return
-                if (node.isPassword || GuideScreen.isProtectedInput(node.inputType) ||
-                    GuideScreen.isProtectedId(node.viewIdResourceName)
-                ) {
-                    blocked = true
-                    return
-                }
-                val useful = node.text != null || node.contentDescription != null ||
-                    node.isClickable || node.isEditable || node.isScrollable
-                if (useful && nodes.size < DevScreenPayload.MAX_NODES) {
-                    val rect = Rect().also(node::getBoundsInScreen)
-                    nodes += DevNode(
-                        text = node.text?.toString(),
-                        description = node.contentDescription?.toString(),
-                        className = DevScreenPayload.shortClass(node.className?.toString()),
-                        bounds = if (rect.isEmpty) null else intArrayOf(rect.left, rect.top, rect.right, rect.bottom),
-                        clickable = node.isClickable,
-                        editable = node.isEditable,
-                        scrollable = node.isScrollable,
-                        checked = node.isChecked,
-                        selected = node.isSelected,
-                    )
-                }
-                for (index in 0 until node.childCount) {
-                    if (blocked || visited >= MAX_VISIT) break
-                    val child = node.getChild(index) ?: continue
-                    try {
-                        visit(child)
-                    } finally {
-                        child.recycle()
-                    }
-                }
-            }
-
-            visit(root)
-            if (blocked) return null
+            val captured = CapturedScreen.read(root) ?: return null
+            if (captured.blocked) return null
             val size = screenSize(service)
             if (pkg != context.packageName) {
-                DevScreenPayload.screenObject(pkg, size.x, size.y, nodes)?.let {
+                ScreenPayload.screenObject(pkg, size.x, size.y, captured.nodes)?.let {
                     lastAppScreen = it
                     lastAppPackage = pkg
                 }
             }
-            return DevScreenPayload.screen(deviceId, now(), pkg, size.x, size.y, nodes)
+            return ScreenPayload.screen(deviceId, now(), pkg, size.x, size.y, captured.nodes)
         } finally {
             root.recycle()
         }
@@ -254,6 +214,5 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
         private const val KEY_ENABLED = "enabled"
         private const val HEARTBEAT_MS = 5_000L
         private const val DEBOUNCE_MS = 300L
-        private const val MAX_VISIT = 400
     }
 }

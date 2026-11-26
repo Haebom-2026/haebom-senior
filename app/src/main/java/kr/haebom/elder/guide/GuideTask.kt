@@ -47,6 +47,14 @@ internal enum class GuideTask(val appPackage: String?) {
             GOV24 -> AUTHENTICATION + GOV24_CERTIFICATE + GOV24_APPLY
         }
 
+    /** 화면 안내 AI(#16)에 보내는 목표 */
+    val aiGoal: String
+        get() = when (this) {
+            CONTACTS -> "ADD_CONTACT"
+            YOUTUBE -> "YOUTUBE"
+            GOV24 -> "GOV24"
+        }
+
     /** 해봄이 검색어를 대신 넣어 줄 수 있는 입력 칸 (resource id 끝부분) */
     val searchFieldIds: Set<String>
         get() = if (this == YOUTUBE) setOf("search_edit_text") else emptySet()
@@ -181,6 +189,21 @@ internal enum class GuideTask(val appPackage: String?) {
             """(을|를)?\s*(검색|찾아|틀어|보여|재생|열어|켜)\s*(해)?\s*(줘|주세요|줄래|봐|줘요|드려)?\s*[.!?~]*\s*$""",
         )
         private val QUERY_FILLERS = setOf("좀", "한번", "검색", "안내", "영상", "동영상")
+
+        const val GOAL_UNKNOWN = "UNKNOWN"
+        const val GOAL_OPEN_APP = "OPEN_APP"
+
+        private val OPEN_APP = Regex("""^\s*(.+?)\s*(앱|어플)?\s*(을|를)?\s*(좀\s*)?(열어|켜|실행|들어가)""")
+
+        /** "카카오톡 열어 줘" → "카카오톡". 앱 열기 명령이 아니면 null */
+        fun appSlot(command: String): String? =
+            OPEN_APP.find(command)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it.length <= 30 }
+
+        /** 앱이 모르는 일을 AI 에 보낼 때의 목표와 slots */
+        fun aiRequestFor(command: String): Pair<String, Map<String, String>> {
+            val app = appSlot(command)
+            return if (app != null) GOAL_OPEN_APP to mapOf("app" to app) else GOAL_UNKNOWN to emptyMap()
+        }
 
         /**
          * 말한 명령에서 유튜브 검색어만 뽑습니다. 없으면 null.

@@ -26,6 +26,7 @@ import kr.haebom.elder.family.Family
 import kr.haebom.elder.family.SensitiveAlerter
 import kr.haebom.elder.family.SensitiveConsentActivity
 import kr.haebom.elder.family.Sensitivity
+import kr.haebom.elder.net.HaebomServer
 
 /**
  * 접근성 서비스 본체. 화면이 바뀔 때마다(0.5초 묶음) 지금 상황을 판단해 세 가지 오버레이를 맞춥니다.
@@ -79,6 +80,7 @@ class GuideService : AccessibilityService() {
     }
     private var voice: GuideVoice? = null
     private val sessionChanged: () -> Unit = {
+        resetAi()
         noTargetSince = 0L
         leftAppSince = 0L
         clearHighlight()
@@ -167,38 +169,61 @@ class GuideService : AccessibilityService() {
         if (active == null || foreground == null) return Decision(null, null)
         if (foreground in PASS_THROUGH) return Decision(highlightedTarget, guideMessage)
 
-        if (foreground != active.packageName) {
+        val task = active.task
+        val taskPackage = active.packageName
+        if (task != null && taskPackage != null && foreground != taskPackage) {
             if (leftAppSince == 0L) leftAppSince = SystemClock.uptimeMillis()
             // 잠깐 다른 창이 스치는 것은 무시하고, 1.5초 넘게 나가 있으면 안내
             if (SystemClock.uptimeMillis() - leftAppSince < LEFT_APP_GRACE_MS) {
                 scheduleLater(LEFT_APP_GRACE_MS)
                 return Decision(null, null)
             }
-            val name = appLabel(active.packageName)
+            val name = appLabel(taskPackage)
             return Decision(null, getString(R.string.caption_left_app, name) to GuideCaption.Tone.WARN)
         }
         leftAppSince = 0L
 
         val query = active.query
         val extraLabels = query?.let { setOf(GuideTask.normalize(it)) } ?: emptySet()
-        val (screen, root) = readGuideScreen(active.task, extraLabels) ?: return Decision(null, guideMessage)
-        candidateBoxes = screen.controls.filter { it.clickable }.map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
+        val read = readScreens(task, extraLabels) ?: return Decision(null, guideMessage)
+        val screen = read.local
+        val captured = read.captured
+        val windowId = read.windowId
+        screen?.let { local ->
+            candidateBoxes = local.controls.filter { it.clickable }
+                .map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
+        }
+
+        // 비밀번호·인증 화면: 표시 없이 직접 하시도록 (AI 에도 보내지 않음)
+        val step = screen?.let { task?.findStep(it.controls, it.hasPasswordField, query, it.hasSearchField) }
+        if (captured?.blocked == true || screen?.hasPasswordField == true ||
+            step?.caption == R.string.guide_authentication_stop
+        ) {
+            noTargetSince = 0L
+            return Decision(null, getString(R.string.guide_authentication_stop) to GuideCaption.Tone.WARN)
+        }
+
         // 검색창이 열리면 말씀하신 검색어를 한 번 대신 넣어 드림 (자동 완성)
-        if (query != null && !active.queryFilled && screen.hasSearchField && !screen.hasPasswordField) {
+        if (task != null && screen != null && query != null && !active.queryFilled && screen.hasSearchField) {
             GuideSession.markQueryFilled()
-            if (fillSearchField(active.task, foreground, query)) {
+            if (fillSearchField(task, foreground, query)) {
                 scheduleLater(FILL_SETTLE_MS)
             }
         }
-        val step = active.task.findStep(screen.controls, screen.hasPasswordField, query, screen.hasSearchField)
-        if (step.caption == R.string.guide_authentication_stop) {
-            noTargetSince = 0L
-            return Decision(null, getString(step.caption) to GuideCaption.Tone.WARN)
+
+        // 화면 안내 AI(#16): 서버가 있으면 AI 가 다음 행동을 정하고, 답하지 못하면 아래 로컬 안내로
+        if (ai != null && captured != null) {
+            aiDecision(active, captured, windowId, foreground)?.let { return it }
         }
+        if (task == null || screen == null || step == null) {
+            // AI 만으로 안내하는 일인데 AI 가 답하지 못함
+            return Decision(null, (aiFailedSay ?: getString(R.string.caption_ai_failed)) to GuideCaption.Tone.WARN)
+        }
+
         val control = step.control
         if (control != null) {
             noTargetSince = 0L
-            val target = Target(root, foreground, control.bounds, step.caption, step.arg)
+            val target = Target(windowId, foreground, control.bounds, step.caption, step.arg)
             return Decision(target, captionText(target) to GuideCaption.Tone.GUIDE)
         }
         // 누를 곳을 못 찾음: 기다렸다가 스크롤 안내를 덧붙임
@@ -212,11 +237,110 @@ class GuideService : AccessibilityService() {
         return Decision(null, text to GuideCaption.Tone.GUIDE)
     }
 
+    // ───────────────────────── 화면 안내 AI (#16) ─────────────────────────
+
+    private data class AiPending(val requestId: Int, val fingerprint: String)
+
+    private val ai: AiGuideClient? by lazy { HaebomServer.api?.let(::AiGuideClient) }
+    private var aiPending: AiPending? = null
+    /** 화면 지문 → 그 화면에 대한 AI 답 */
+    private var aiAnswer: Pair<String, AiReply>? = null
+    /** AI 가 답하지 못한 화면 지문 (같은 화면에서는 로컬 안내를 씀) */
+    private var aiFailedFingerprint: String? = null
+    private var aiFailedSay: String? = null
+    private val aiHistory = ArrayDeque<String>()
+    private var aiDoneScheduled = false
+
+    private fun resetAi() {
+        aiPending = null
+        aiAnswer = null
+        aiFailedFingerprint = null
+        aiFailedSay = null
+        aiHistory.clear()
+        aiDoneScheduled = false
+    }
+
+    /**
+     * 지금 화면에 대한 AI 안내. 답이 없으면 물어보고 "살펴보고 있어요" 자막.
+     * null 이면 이 화면은 AI 가 답하지 못해 로컬 안내를 씀.
+     */
+    private fun aiDecision(active: GuideSession.Active, captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
+        val fingerprint = captured.fingerprint
+        if (fingerprint == aiFailedFingerprint) return null
+        val answer = aiAnswer?.takeIf { it.first == fingerprint }?.second
+        if (answer != null) return applyAi(answer, captured, windowId, foreground)
+
+        if (aiPending?.fingerprint != fingerprint) requestAi(active, captured, fingerprint)
+        return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO)
+    }
+
+    private fun requestAi(active: GuideSession.Active, captured: CapturedScreen, fingerprint: String) {
+        val client = ai ?: return
+        val size = screenSize()
+        val screenJson = ScreenPayload.screenObject(captured.packageName, size.x, size.y, captured.nodes) ?: return
+        val id = client.request(
+            active.goal, active.utterance, active.slots, screenJson, aiHistory.toList(), settings.deviceId,
+        ) { requestId, outcome -> onAiOutcome(requestId, fingerprint, outcome) }
+        aiPending = AiPending(id, fingerprint)
+    }
+
+    private fun onAiOutcome(requestId: Int, fingerprint: String, outcome: AiOutcome) {
+        // 더 새 요청이 있거나 안내가 바뀌었으면 버림
+        if (aiPending?.requestId != requestId) return
+        aiPending = null
+        val reply = (outcome as? AiOutcome.Reply)?.reply
+        if (reply == null || reply.isFallback) {
+            aiFailedFingerprint = fingerprint
+            aiFailedSay = reply?.say
+        } else {
+            aiAnswer = fingerprint to reply
+            if (reply.say.isNotBlank() && aiHistory.lastOrNull() != reply.say) {
+                aiHistory.addLast(reply.say)
+                while (aiHistory.size > ScreenPayload.MAX_HISTORY) aiHistory.removeFirst()
+            }
+        }
+        scheduleRefresh()
+    }
+
+    private fun applyAi(reply: AiReply, captured: CapturedScreen, windowId: Int, foreground: String): Decision {
+        val say = reply.say.ifBlank { getString(R.string.caption_here) }
+        return when (reply.type) {
+            AiReply.DONE -> {
+                if (!aiDoneScheduled) {
+                    aiDoneScheduled = true
+                    val session = GuideSession.active
+                    handler.postDelayed({ if (GuideSession.active === session) GuideSession.stop() }, AI_DONE_LINGER_MS)
+                }
+                Decision(null, say to GuideCaption.Tone.DONE)
+            }
+            AiReply.HIGHLIGHT, AiReply.SUGGEST -> {
+                val b = AiReply.findTarget(reply, captured.nodes)?.bounds
+                if (b == null) {
+                    // 짚으라는 요소가 지금 화면에 없음: 다시 물어봄
+                    aiAnswer = null
+                    scheduleRefresh()
+                    Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO)
+                } else {
+                    val target = Target(windowId, foreground, Rect(b[0], b[1], b[2], b[3]), text = say)
+                    Decision(target, say to GuideCaption.Tone.GUIDE)
+                }
+            }
+            else -> Decision(null, say to GuideCaption.Tone.GUIDE)
+        }
+    }
+
+    private data class ScreenRead(val local: GuideScreen?, val captured: CapturedScreen?, val windowId: Int)
+
+    /** 로컬 안내용 단추 목록(아는 일일 때)과 AI 로 보낼 화면을 한 번에 읽음 */
     @Suppress("DEPRECATION") // 노드 recycle 은 API 33 미만에서 필요
-    private fun readGuideScreen(task: GuideTask, extraLabels: Set<String>): Pair<GuideScreen, Int>? {
+    private fun readScreens(task: GuideTask?, extraLabels: Set<String>): ScreenRead? {
         val root = rootInActiveWindow ?: return null
         return try {
-            GuideScreen.read(root, task, extraLabels) to root.windowId
+            ScreenRead(
+                local = task?.let { GuideScreen.read(root, it, extraLabels) },
+                captured = if (ai != null) CapturedScreen.read(root) else null,
+                windowId = root.windowId,
+            )
         } finally {
             root.recycle()
         }
@@ -367,7 +491,8 @@ class GuideService : AccessibilityService() {
             if (remaining in 1..60_000) handler.postDelayed(captionTick, remaining + 50)
         } else if (message.first != spokenGuide) {
             spokenGuide = message.first
-            speak(message.first)
+            // "살펴보고 있어요"는 화면이 바뀔 때마다 뜨므로 읽지 않음
+            if (message.first != getString(R.string.caption_ai_waiting)) speak(message.first)
         }
     }
 
@@ -551,6 +676,8 @@ class GuideService : AccessibilityService() {
         val bounds: Rect?,
         val caption: Int? = null,
         val captionArg: String? = null,
+        /** AI 가 준 문장 (자막은 이 문장을 그대로 씀) */
+        val text: String? = null,
     ) {
         fun box(): Box? = bounds?.let { Box(it.left, it.top, it.right, it.bottom) }
     }
@@ -560,6 +687,8 @@ class GuideService : AccessibilityService() {
         const val LEFT_APP_GRACE_MS = 1_500L
         const val SCROLL_TIP_AFTER_MS = 8_000L
         const val FILL_SETTLE_MS = 700L
+        /** AI 가 "다 됐어요"라고 한 뒤 자막을 잠시 보여 주고 안내를 마침 */
+        const val AI_DONE_LINGER_MS = 6_000L
         const val DEFAULT_CAPTION_HEIGHT_DP = 120
         const val TAG = "HaebomGuide"
 
