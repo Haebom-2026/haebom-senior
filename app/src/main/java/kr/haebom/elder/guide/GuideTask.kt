@@ -20,6 +20,21 @@ internal enum class GuideTask(val appPackage: String?) {
         }
     }
 
+    /** 자막에 쓰는 앱 이름 */
+    val nameText: Int
+        get() = when (this) {
+            CONTACTS -> R.string.task_contacts_name
+            YOUTUBE -> R.string.task_youtube_name
+            GOV24 -> R.string.task_gov24_name
+        }
+
+    /** 안내를 시작할 때 "이렇게 할게요" 문장 */
+    fun nextStepText(): Int = when (this) {
+        CONTACTS -> R.string.task_contacts_next
+        YOUTUBE -> R.string.task_youtube_next
+        GOV24 -> R.string.task_gov24_next
+    }
+
     val allowedLabels: Set<String>
         get() = when (this) {
             CONTACTS -> CONTACT_ADD + CONTACT_SAVE + CONTACT_BACKUP + CONTACT_CANCEL

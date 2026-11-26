@@ -3,33 +3,69 @@ package kr.haebom.elder.guide
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.Rect
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
-import android.widget.TextView
 import kr.haebom.elder.GuideInputActivity
 import kr.haebom.elder.R
+import kr.haebom.elder.family.ElderSettings
+import kr.haebom.elder.family.Family
+import kr.haebom.elder.family.SensitiveApps
+import kr.haebom.elder.family.SensitiveConsentActivity
 
+/**
+ * 접근성 서비스 본체. 화면이 바뀔 때마다(0.5초 묶음) 지금 상황을 판단해 세 가지 오버레이를 맞춥니다.
+ *   1) 빨간 테두리 표시 (눌러야 할 곳)
+ *   2) 큰 자막 막대 (안내 + 들은 말 + 알림)
+ *   3) 마이크·SOS 묶음 (가리면 비켜 줌)
+ *
+ * 상황별 대처
+ *   - 안내하던 앱 화면  : 눌러야 할 곳 표시 + 위치를 말로 안내. 오래 못 찾으면 "위로 밀어 보세요"
+ *   - 비밀번호·인증 화면 : 표시 없이 "직접 해 주세요" 주의 자막
+ *   - 다른 앱으로 나감   : 표시를 지우고 "다시 열면 이어서 안내할게요"
+ *   - 키보드가 뜸        : 자막과 마이크를 키보드 위로
+ *   - 잠금 화면          : 모두 숨김
+ *   - 민감 앱(은행·정부24)에 들어감 : 보호자 알림 동의 팝업 (같은 앱은 10분 동안 다시 묻지 않음)
+ */
 class GuideService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
+    private val settings by lazy { ElderSettings(this) }
     private var connected = false
     private var refreshScheduled = false
     private val refresh = Runnable {
         refreshScheduled = false
-        refreshHighlight()
+        refreshScreen()
     }
+    private val captionTick = Runnable { renderCaption() }
+
     private var highlight: View? = null
     private var highlightedTarget: Target? = null
-    private var spokenCaption: Pair<Int, String>? = null
+    private var captionHost: FrameLayout? = null
+    private var captionView: CaptionBarView? = null
+    private var captionAtTop: Boolean? = null
+    private var captionBox: Box? = null
+    private var keyboardTop: Int? = null
+
+    /** 지금 화면에 맞는 안내 자막 (잠깐 자막이 없을 때 보임) */
+    private var guideMessage: Pair<String, GuideCaption.Tone>? = null
+    private var spokenGuide: String? = null
+    private var spokenSerial = 0L
+    private var noTargetSince = 0L
+    private var leftAppSince = 0L
+    private val sensitiveAsked = mutableMapOf<String, Long>()
+    private var lastForeground: String? = null
+
     private val floatingControls by lazy {
         FloatingGuideControls(
             context = this,
@@ -39,36 +75,25 @@ class GuideService : AccessibilityService() {
     }
     private var voice: GuideVoice? = null
     private val sessionChanged: () -> Unit = {
-        stopHighlighting()
+        noTargetSince = 0L
+        leftAppSince = 0L
+        clearHighlight()
         scheduleRefresh()
     }
+    private val captionChanged: (GuideCaption.Message?) -> Unit = { renderCaption() }
 
     override fun onServiceConnected() {
         connected = true
         GuideSession.onChange = sessionChanged
+        GuideCaption.listener = captionChanged
         DevScreenHook.sink?.onConnected(this)
         scheduleRefresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         DevScreenHook.sink?.onScreenChanged(this)
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                if (event.packageName != packageName && event.packageName != GuideSession.active?.packageName) return
-                if (event.windowId == highlightedTarget?.windowId) clearHighlight()
-            }
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                if (event.packageName != null &&
-                    event.packageName != packageName &&
-                    event.packageName != GuideSession.active?.packageName
-                ) {
-                    stopHighlighting()
-                } else {
-                    clearIfActiveWindowChanged()
-                }
-            }
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> clearIfActiveWindowChanged()
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            event.packageName?.toString()?.let(::onForegroundApp)
         }
         scheduleRefresh()
     }
@@ -76,12 +101,13 @@ class GuideService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         floatingControls.hide()
-        stopHighlighting()
+        clearHighlight()
+        removeCaption()
         scheduleRefresh()
     }
 
     override fun onInterrupt() {
-        stopHighlighting()
+        clearHighlight()
     }
 
     override fun onUnbind(intent: Intent): Boolean {
@@ -102,50 +128,292 @@ class GuideService : AccessibilityService() {
         handler.postDelayed(refresh, SCREEN_UPDATE_INTERVAL_MS)
     }
 
-    private fun refreshHighlight() {
-        syncFloatingControls()
-        val target = findTarget()
-        if (target == highlightedTarget) return
-        clearHighlight()
-        if (target == null) return
+    // ───────────────────────── 상황 판단 ─────────────────────────
 
-        val view = createOverlay(target)
+    private fun refreshScreen() {
+        val locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
+        if (locked) {
+            floatingControls.hide()
+            clearHighlight()
+            removeCaption()
+            return
+        }
+        keyboardTop = findKeyboardTop()
+        val foreground = activeScreenPackage()
+        syncFloatingControls(foreground)
+
+        val decision = decide(foreground)
+        guideMessage = decision.message
+        if (decision.target != highlightedTarget) {
+            clearHighlight()
+            decision.target?.let(::showHighlight)
+        }
+        renderCaption()
+    }
+
+    private data class Decision(val target: Target?, val message: Pair<String, GuideCaption.Tone>?)
+
+    private fun decide(foreground: String?): Decision {
+        val active = GuideSession.active
+        if (foreground == packageName) {
+            // 해봄 화면: 연습 화면의 단추만 표시
+            return Decision(findPracticeTarget(), null)
+        }
+        if (active == null || foreground == null) return Decision(null, null)
+        if (foreground in PASS_THROUGH) return Decision(highlightedTarget, guideMessage)
+
+        if (foreground != active.packageName) {
+            if (leftAppSince == 0L) leftAppSince = SystemClock.uptimeMillis()
+            // 잠깐 다른 창이 스치는 것은 무시하고, 1.5초 넘게 나가 있으면 안내
+            if (SystemClock.uptimeMillis() - leftAppSince < LEFT_APP_GRACE_MS) {
+                scheduleLater(LEFT_APP_GRACE_MS)
+                return Decision(null, null)
+            }
+            val name = appLabel(active.packageName)
+            return Decision(null, getString(R.string.caption_left_app, name) to GuideCaption.Tone.WARN)
+        }
+        leftAppSince = 0L
+
+        val (screen, root) = readGuideScreen(active.task) ?: return Decision(null, guideMessage)
+        val step = active.task.findStep(screen.controls, screen.hasPasswordField)
+        if (step.caption == R.string.guide_authentication_stop) {
+            noTargetSince = 0L
+            return Decision(null, getString(step.caption) to GuideCaption.Tone.WARN)
+        }
+        val control = step.control
+        if (control != null) {
+            noTargetSince = 0L
+            val target = Target(root, foreground, control.bounds, step.caption)
+            return Decision(target, captionText(target) to GuideCaption.Tone.GUIDE)
+        }
+        // 누를 곳을 못 찾음: 기다렸다가 스크롤 안내를 덧붙임
+        if (noTargetSince == 0L) noTargetSince = SystemClock.uptimeMillis()
+        var text = getString(step.caption)
+        if (screen.hasScrollable && SystemClock.uptimeMillis() - noTargetSince > SCROLL_TIP_AFTER_MS) {
+            text += " " + getString(R.string.caption_scroll_tip)
+        } else if (screen.hasScrollable) {
+            scheduleLater(SCROLL_TIP_AFTER_MS)
+        }
+        return Decision(null, text to GuideCaption.Tone.GUIDE)
+    }
+
+    @Suppress("DEPRECATION") // 노드 recycle 은 API 33 미만에서 필요
+    private fun readGuideScreen(task: GuideTask): Pair<GuideScreen, Int>? {
+        val root = rootInActiveWindow ?: return null
+        return try {
+            GuideScreen.read(root, task) to root.windowId
+        } finally {
+            root.recycle()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun findPracticeTarget(): Target? {
+        val root = rootInActiveWindow ?: return null
+        try {
+            for (id in listOf(R.id.practice_finish, R.id.practice_next)) {
+                val nodes = root.findAccessibilityNodeInfosByViewId(resources.getResourceName(id))
+                try {
+                    for (node in nodes) {
+                        if (!node.isVisibleToUser || !node.isEnabled) continue
+                        val bounds = Rect()
+                        node.getBoundsInScreen(bounds)
+                        if (!bounds.isEmpty) return Target(root.windowId, packageName, bounds)
+                    }
+                } finally {
+                    nodes.forEach { it.recycle() }
+                }
+            }
+            return null
+        } finally {
+            root.recycle()
+        }
+    }
+
+    /** 민감 앱에 들어오면 보호자에게 알릴지 묻기 (어르신이 "예"를 골라야만 보냄) */
+    private fun onForegroundApp(pkg: String) {
+        if (pkg == lastForeground) return
+        lastForeground = pkg
+        if (pkg == packageName || !settings.sensitiveAlerts || Family.gateway == null) return
+        val category = SensitiveApps.category(pkg) ?: return
+        val now = SystemClock.elapsedRealtime()
+        val last = sensitiveAsked[pkg]
+        if (last != null && now - last < Family.NOTICE_COOLDOWN_MS) return
+        sensitiveAsked[pkg] = now
+        startActivity(
+            SensitiveConsentActivity.intent(this, pkg, appLabel(pkg), category).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    // ───────────────────────── 오버레이 ─────────────────────────
+
+    private fun syncFloatingControls(activePackage: String?) {
+        if (activePackage != null && activePackage != packageName &&
+            activePackage != "com.android.systemui" && activePackage != "android"
+        ) {
+            floatingControls.setSosVisible(settings.sosEnabled)
+            floatingControls.setGuiding(GuideSession.active != null)
+            floatingControls.show()
+        } else {
+            floatingControls.hide()
+        }
+    }
+
+    private fun showHighlight(target: Target) {
+        val view = GuideHighlightView(this, target.bounds, getString(R.string.caption_here))
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         )
         try {
             getSystemService(WindowManager::class.java).addView(view, params)
         } catch (_: WindowManager.BadTokenException) {
-            // The system can revoke the accessibility overlay token during a service restart.
-            return
+            return // 서비스가 다시 시작되는 중이면 오버레이 토큰이 없을 수 있음
         }
         highlight = view
         highlightedTarget = target
-        val caption = captionText(target)
-        if (caption != null && spokenCaption != (target.windowId to caption)) {
-            spokenCaption = target.windowId to caption
-            if (voice == null) voice = GuideVoice(this)
-            voice?.speak(caption)
+        // 자막·버튼이 어두운 막 아래로 가지 않게 다시 위로
+        captionHost?.let { reattachCaption() }
+        floatingControls.bringToFront()
+    }
+
+    private fun clearHighlight() {
+        val view = highlight ?: return
+        highlight = null
+        highlightedTarget = null
+        getSystemService(WindowManager::class.java).removeViewImmediate(view)
+    }
+
+    /** 잠깐 자막 > 안내 자막 순으로 하나를 골라 띄우고, 새 문장이면 읽어 줌 */
+    private fun renderCaption() {
+        handler.removeCallbacks(captionTick)
+        val transient = GuideCaption.active()
+        val message: Pair<String, GuideCaption.Tone>? = transient?.let { it.text to it.tone } ?: guideMessage
+        if (message == null) {
+            removeCaption()
+            updateFloatingAvoid()
+            return
+        }
+        ensureCaption()
+        captionView?.show(message.first, message.second)
+        placeCaption()
+
+        if (transient != null) {
+            if (transient.speak && transient.serial != spokenSerial) {
+                spokenSerial = transient.serial
+                speak(transient.text)
+            }
+            val remaining = transient.until - GuideCaption.now()
+            if (remaining in 1..60_000) handler.postDelayed(captionTick, remaining + 50)
+        } else if (message.first != spokenGuide) {
+            spokenGuide = message.first
+            speak(message.first)
         }
     }
 
-    private fun syncFloatingControls() {
-        val activePackage = activeScreenPackage()
-        val locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
-        if (!locked && activePackage != null && activePackage != packageName &&
-            activePackage != "com.android.systemui" && activePackage != "android"
-        ) {
-            floatingControls.show()
-        } else {
-            floatingControls.hide()
+    private fun ensureCaption() {
+        if (captionHost != null) return
+        val bar = CaptionBarView(this)
+        val host = FrameLayout(this).apply {
+            val side = dp(12)
+            setPadding(side, dp(8), side, dp(8))
+            addView(bar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> onCaptionLaidOut(v) }
+        }
+        captionView = bar
+        captionHost = host
+        captionAtTop = null
+        try {
+            getSystemService(WindowManager::class.java).addView(host, captionParams(atTop = false))
+        } catch (_: WindowManager.BadTokenException) {
+            captionHost = null
+            captionView = null
+            return
+        }
+        floatingControls.bringToFront()
+    }
+
+    private fun reattachCaption() {
+        val host = captionHost ?: return
+        val wm = getSystemService(WindowManager::class.java)
+        val params = host.layoutParams as? WindowManager.LayoutParams ?: return
+        wm.removeViewImmediate(host)
+        try {
+            wm.addView(host, params)
+        } catch (_: WindowManager.BadTokenException) {
+            captionHost = null
+            captionView = null
         }
     }
+
+    private fun placeCaption() {
+        val host = captionHost ?: return
+        val atTop = OverlayPlanner.captionAtTop(screenSize().y, highlightedTarget?.box(), keyboardTop)
+        val params = captionParams(atTop)
+        captionAtTop = atTop
+        getSystemService(WindowManager::class.java).updateViewLayout(host, params)
+    }
+
+    private fun captionParams(atTop: Boolean): WindowManager.LayoutParams {
+        val screen = screenSize()
+        val keyboardLift = keyboardTop?.let { (screen.y - it).coerceAtLeast(0) } ?: 0
+        return WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = (if (atTop) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+            y = if (atTop) dp(36) else dp(24) + keyboardLift
+        }
+    }
+
+    private fun onCaptionLaidOut(view: View) {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        captionBox = Box(location[0], location[1], location[0] + view.width, location[1] + view.height)
+        updateFloatingAvoid()
+    }
+
+    private fun removeCaption() {
+        handler.removeCallbacks(captionTick)
+        val host = captionHost ?: return
+        captionHost = null
+        captionView = null
+        captionBox = null
+        captionAtTop = null
+        getSystemService(WindowManager::class.java).removeViewImmediate(host)
+    }
+
+    /** 마이크 묶음이 가리면 안 되는 곳: 눌러야 할 곳, 자막, 키보드 */
+    private fun updateFloatingAvoid() {
+        val screen = screenSize()
+        val areas = listOfNotNull(
+            highlightedTarget?.box()?.inflate(dp(28)),
+            captionBox.takeIf { captionHost != null },
+            keyboardTop?.let { Box(0, it, screen.x, screen.y) },
+        )
+        floatingControls.avoid(areas)
+    }
+
+    private fun findKeyboardTop(): Int? = try {
+        windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.let { window ->
+            Rect().also(window::getBoundsInScreen).top.takeIf { it > 0 }
+        }
+    } catch (_: SecurityException) {
+        null
+    }
+
+    // ───────────────────────── 기타 ─────────────────────────
 
     @Suppress("DEPRECATION")
     private fun activeScreenPackage(): String? {
@@ -159,131 +427,59 @@ class GuideService : AccessibilityService() {
 
     private fun openInput(sos: Boolean) {
         val current = activeScreenPackage()
-        stopHighlighting()
         floatingControls.hide()
         startActivity(
             GuideInputActivity.intent(this, sos, current).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 
-    private fun captionText(target: Target): String? {
-        val caption = target.caption ?: return null
-        val text = getString(caption)
+    private fun captionText(target: Target): String {
+        val text = getString(target.caption ?: R.string.caption_here)
         val bounds = target.bounds ?: return text
-        val metrics = resources.displayMetrics
+        val screen = screenSize()
         val columns = listOf(
             listOf(R.string.guide_top_left, R.string.guide_top_center, R.string.guide_top_right),
             listOf(R.string.guide_center_left, R.string.guide_center, R.string.guide_center_right),
             listOf(R.string.guide_bottom_left, R.string.guide_bottom_center, R.string.guide_bottom_right),
         )
-        val row = (bounds.centerY() * 3 / metrics.heightPixels.coerceAtLeast(1)).coerceIn(0, 2)
-        val column = (bounds.centerX() * 3 / metrics.widthPixels.coerceAtLeast(1)).coerceIn(0, 2)
+        val row = (bounds.centerY() * 3 / screen.y.coerceAtLeast(1)).coerceIn(0, 2)
+        val column = (bounds.centerX() * 3 / screen.x.coerceAtLeast(1)).coerceIn(0, 2)
         val position = getString(R.string.guide_location, getString(columns[row][column]))
         return getString(R.string.guide_caption_with_location, text, position)
     }
 
-    private fun createOverlay(target: Target): View {
-        val outline = GuideHighlightView(this, target.bounds)
-        val caption = captionText(target) ?: return outline
-        val density = resources.displayMetrics.density
-        val padding = (12 * density).toInt()
-        val bounds = target.bounds
-        val anchor = if (bounds != null && bounds.bottom > resources.displayMetrics.heightPixels * 0.7f) {
-            Gravity.TOP
-        } else {
-            Gravity.BOTTOM
-        }
-        return FrameLayout(this).apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            addView(outline, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
-            ))
-            addView(TextView(context).apply {
-                text = caption
-                textSize = 21f
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-                setPadding(padding, padding, padding, padding)
-                background = GradientDrawable().apply {
-                    setColor(Color.argb(235, 20, 27, 36))
-                    cornerRadius = 10 * density
-                }
-            }, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                anchor,
-            ).apply {
-                setMargins(padding, padding * 3, padding, padding * 4)
-            })
-        }
+    private fun appLabel(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (_: PackageManager.NameNotFoundException) {
+        pkg
     }
 
-    @Suppress("DEPRECATION") // Node recycling is still needed on Android versions before API 33.
-    private fun findTarget(): Target? {
-        val root = rootInActiveWindow ?: return null
-        try {
-            val screenPackage = root.packageName?.toString() ?: return null
-            if (screenPackage != packageName) {
-                val active = GuideSession.active ?: return null
-                if (active.packageName != screenPackage) return null
-                val screen = GuideScreen.read(root, active.task)
-                val step = active.task.findStep(screen.controls, screen.hasPasswordField)
-                return Target(root.windowId, screenPackage, step.control?.bounds, step.caption)
-            }
+    private fun speak(text: String) {
+        if (voice == null) voice = GuideVoice(this)
+        voice?.speak(text)
+    }
 
-            for (id in listOf(R.id.practice_finish, R.id.practice_next)) {
-                val nodes = root.findAccessibilityNodeInfosByViewId(resources.getResourceName(id))
-                try {
-                    for (node in nodes) {
-                        if (!node.isVisibleToUser || !node.isEnabled) continue
-                        val bounds = Rect()
-                        node.getBoundsInScreen(bounds)
-                        if (!bounds.isEmpty) return Target(root.windowId, screenPackage, bounds)
-                    }
-                } finally {
-                    nodes.forEach { it.recycle() }
-                }
-            }
-            return null
-        } finally {
-            root.recycle()
-        }
+    private fun scheduleLater(delayMs: Long) {
+        handler.postDelayed({ scheduleRefresh() }, delayMs)
     }
 
     @Suppress("DEPRECATION")
-    private fun clearIfActiveWindowChanged() {
-        val previous = highlightedTarget ?: return
-        val root = rootInActiveWindow
-        try {
-            if (root?.windowId != previous.windowId || root.packageName != previous.packageName) {
-                stopHighlighting()
-            }
-        } finally {
-            root?.recycle()
-        }
-    }
+    private fun screenSize(): Point =
+        Point().also { getSystemService(WindowManager::class.java).defaultDisplay.getRealSize(it) }
 
-    private fun clearHighlight() {
-        val view = highlight ?: return
-        highlight = null
-        highlightedTarget = null
-        getSystemService(WindowManager::class.java).removeViewImmediate(view)
-    }
-
-    private fun stopHighlighting() {
-        handler.removeCallbacks(refresh)
-        refreshScheduled = false
-        spokenCaption = null
-        voice?.stop()
-        clearHighlight()
-    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun disconnect() {
         if (connected) DevScreenHook.sink?.onDisconnected()
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
+        if (GuideCaption.listener === captionChanged) GuideCaption.listener = null
+        handler.removeCallbacksAndMessages(null)
+        refreshScheduled = false
         floatingControls.hide()
-        stopHighlighting()
+        clearHighlight()
+        removeCaption()
+        voice?.stop()
     }
 
     private data class Target(
@@ -291,9 +487,19 @@ class GuideService : AccessibilityService() {
         val packageName: String,
         val bounds: Rect?,
         val caption: Int? = null,
-    )
+    ) {
+        fun box(): Box? = bounds?.let { Box(it.left, it.top, it.right, it.bottom) }
+    }
 
     private companion object {
         const val SCREEN_UPDATE_INTERVAL_MS = 500L
+        const val LEFT_APP_GRACE_MS = 1_500L
+        const val SCROLL_TIP_AFTER_MS = 8_000L
+
+        /** 안내 중에 잠깐 떠도 "앱에서 나갔다"고 보지 않는 창 */
+        val PASS_THROUGH = setOf(
+            "com.android.systemui", "android",
+            "com.google.android.inputmethod.latin", "com.samsung.android.honeyboard",
+        )
     }
 }

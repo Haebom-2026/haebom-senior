@@ -31,6 +31,13 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <activity
+            android:name=".family.SensitiveConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <service
             android:name=".guide.GuideService"
             android:exported="true"

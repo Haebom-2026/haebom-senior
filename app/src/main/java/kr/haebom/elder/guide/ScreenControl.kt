@@ -11,6 +11,7 @@ internal data class ScreenControl(val labels: Set<String>, val bounds: Rect, val
 internal data class GuideScreen(
     val controls: List<ScreenControl>,
     val hasPasswordField: Boolean,
+    val hasScrollable: Boolean = false,
 ) {
     companion object {
         private const val MAX_NODES = 350
@@ -19,6 +20,7 @@ internal data class GuideScreen(
         fun read(root: AccessibilityNodeInfo, task: GuideTask): GuideScreen {
             val controls = mutableListOf<ScreenControl>()
             var hasPassword = false
+            var hasScrollable = false
             var visited = 0
             val allowlistedLabels = task.allowedLabels
 
@@ -30,6 +32,8 @@ internal data class GuideScreen(
                     hasPassword = true
                     return
                 }
+
+                if (node.isScrollable) hasScrollable = true
 
                 // Inspect controls only. Text already entered into a field stays in its app.
                 if (node.isEditable || node.className == "android.widget.EditText") return
@@ -58,7 +62,7 @@ internal data class GuideScreen(
             }
 
             inspect(root)
-            return GuideScreen(if (hasPassword) emptyList() else controls, hasPassword)
+            return GuideScreen(if (hasPassword) emptyList() else controls, hasPassword, hasScrollable)
         }
         internal fun isProtectedInput(type: Int): Boolean {
             val variation = type and InputType.TYPE_MASK_VARIATION
