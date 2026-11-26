@@ -32,6 +32,9 @@
             android:exported="false"
             android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <activity
+            android:name=".family.FamilyActivity"
+            android:exported="false" />
+        <activity
             android:name=".family.SensitiveConsentActivity"
             android:excludeFromRecents="true"
             android:exported="false"

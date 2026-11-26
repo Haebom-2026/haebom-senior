@@ -15,7 +15,7 @@
             android:id="@+id/practice_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="24sp"
+            android:textSize="28sp"
             android:textStyle="bold" />
 
         <Button
@@ -23,17 +23,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:minHeight="56dp"
+            android:minHeight="72dp"
             android:text="@string/practice_next"
-            android:textSize="18sp" />
+            android:textSize="22sp" />
         <Button
             android:id="@+id/practice_finish"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="88dp"
-            android:minHeight="56dp"
+            android:minHeight="72dp"
             android:text="@string/practice_finish"
-            android:textSize="18sp"
+            android:textSize="22sp"
             android:visibility="gone" />
     </LinearLayout>
 </ScrollView>
