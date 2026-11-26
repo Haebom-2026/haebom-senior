@@ -99,6 +99,14 @@
             android:textSize="18sp"
             android:visibility="gone" />
         <Button
+            android:id="@+id/open_dev_viewer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/open_dev_viewer"
+            android:textSize="18sp"
+            android:visibility="gone" />
+        <Button
             android:id="@+id/check_firebase"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

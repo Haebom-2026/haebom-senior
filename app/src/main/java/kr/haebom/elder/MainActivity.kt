@@ -60,6 +60,12 @@ class MainActivity : Activity() {
                     ))
                 }
             }
+            findViewById<Button>(R.id.open_dev_viewer).apply {
+                visibility = View.VISIBLE
+                setOnClickListener {
+                    startActivity(Intent().setClassName(packageName, "kr.haebom.elder.dev.DevViewerActivity"))
+                }
+            }
         }
     }
 
