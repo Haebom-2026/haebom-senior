@@ -71,9 +71,16 @@ class GuideTaskTest {
         assertEquals(R.string.guide_youtube_press_enter, noSuggestion.caption)
         assertNull(noSuggestion.control)
 
-        val done = GuideTask.YOUTUBE.findStep(listOf(results, search), false, "임영웅")
+        // 말한 검색어의 결과 화면이면 끝
+        val ownResults = ScreenControl(setOf("search_query", "임영웅"), android.graphics.Rect(), clickable = true)
+        val done = GuideTask.YOUTUBE.findStep(listOf(ownResults, search), false, "임영웅")
         assertEquals(R.string.guide_youtube_results, done.caption)
         assertNull(done.control)
+
+        // 예전에 검색해 둔 다른 결과 화면이면 끝내지 않고 위쪽 검색어 칸을 짚음
+        val oldResults = GuideTask.YOUTUBE.findStep(listOf(results, search), false, "임영웅")
+        assertEquals(R.string.guide_youtube_new_search, oldResults.caption)
+        assertSame(results, oldResults.control)
 
         // 검색어 없이 시작하면 예전처럼 검색 단추만 안내
         assertEquals(R.string.guide_youtube_search, GuideTask.YOUTUBE.findStep(listOf(search), false).caption)
@@ -88,5 +95,30 @@ class GuideTaskTest {
         GuideSession.markQueryFilled()
         assertTrue(GuideSession.active!!.queryFilled)
         GuideSession.stop()
+    }
+
+    @Test
+    fun pauseKeepsTheSessionAndSerialMarksNewSessions() {
+        GuideSession.start(GuideTask.YOUTUBE, "com.google.android.youtube", "임영웅")
+        val serial = GuideSession.serial
+        GuideSession.setPaused(true)
+        assertTrue(GuideSession.active!!.paused)
+        assertEquals("임영웅", GuideSession.active!!.query)
+        GuideSession.setPaused(false)
+        assertFalse(GuideSession.active!!.paused)
+        assertEquals(serial, GuideSession.serial)
+        GuideSession.startAi("카카오톡 열어 줘", "OPEN_APP", mapOf("app" to "카카오톡"))
+        assertTrue(GuideSession.serial > serial)
+        GuideSession.stop()
+    }
+
+    @Test
+    fun spokenAppNameMatchesTheOpenedApp() {
+        assertTrue(GuideTask.isSameApp("카카오톡", "카카오톡"))
+        assertTrue(GuideTask.isSameApp("카카오톡 앱", "카카오톡"))
+        assertTrue(GuideTask.isSameApp("유튜브", "YouTube"))
+        assertTrue(GuideTask.isSameApp("설정", "설정"))
+        assertFalse(GuideTask.isSameApp("카카오톡", "One UI 홈"))
+        assertFalse(GuideTask.isSameApp("", "설정"))
     }
 }

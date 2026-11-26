@@ -68,6 +68,8 @@ internal enum class GuideTask(val appPackage: String?) {
         hasPasswordField: Boolean,
         query: String? = null,
         searchField: Boolean = false,
+        /** 검색어를 이미 넣었는지 (안 넣었으면 자동완성 입력 단추를 보여 줌) */
+        queryFilled: Boolean = true,
     ): GuideStep {
         if (hasPasswordField || (this == GOV24 && controls.any { it.matches(AUTHENTICATION) })) {
             return GuideStep(R.string.guide_authentication_stop)
@@ -88,7 +90,7 @@ internal enum class GuideTask(val appPackage: String?) {
                     )
                 }
             }
-            YOUTUBE -> youtubeStep(controls, query, searchField)
+            YOUTUBE -> youtubeStep(controls, query, searchField, queryFilled)
             GOV24 -> {
                 val service = controls.firstOrNull { it.clickable && it.matches(GOV24_CERTIFICATE) }
                 val certificateScreen = controls.any { it.matches(GOV24_CERTIFICATE) }
@@ -104,13 +106,22 @@ internal enum class GuideTask(val appPackage: String?) {
         }
     }
 
-    private fun youtubeStep(controls: List<ScreenControl>, query: String?, searchField: Boolean): GuideStep {
-        if (controls.any { it.matches(YOUTUBE_RESULTS) }) return GuideStep(R.string.guide_youtube_results)
+    private fun youtubeStep(controls: List<ScreenControl>, query: String?, searchField: Boolean, queryFilled: Boolean): GuideStep {
+        val results = controls.firstOrNull { it.matches(YOUTUBE_RESULTS) }
+        if (results != null) {
+            // 말한 검색어의 결과면 끝. 예전에 검색해 둔 다른 결과 화면이면 위쪽 검색어 칸을 눌러 새로 검색
+            if (query == null || normalize(query) in results.labels) return GuideStep(R.string.guide_youtube_results)
+            return GuideStep(R.string.guide_youtube_new_search, results.takeIf { it.clickable }, query)
+        }
         if (query == null) {
             return controlStep(
                 controls, YOUTUBE_SEARCH,
                 R.string.guide_youtube_search, R.string.guide_youtube_enter_query,
             )
+        }
+        if (searchField && !queryFilled) {
+            // 검색창이 열림: 바로 넣지 않고 아래 "자동완성 입력" 단추를 어르신이 누르게
+            return GuideStep(R.string.guide_youtube_tap_autofill, arg = query, chips = listOf(query))
         }
         if (searchField) {
             // 검색어를 넣어 드린 뒤: 같은 글자의 추천 검색어를 짚고, 없으면 키보드의 검색 단추
@@ -199,6 +210,16 @@ internal enum class GuideTask(val appPackage: String?) {
         fun appSlot(command: String): String? =
             OPEN_APP.find(command)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it.length <= 30 }
 
+        /** 말한 앱 이름과 지금 앱 이름이 같은 앱인지 ("카카오톡" ↔ "카카오톡", "유튜브" ↔ "YouTube") */
+        fun isSameApp(spoken: String, label: String): Boolean {
+            val a = normalize(spoken).removeSuffix("앱")
+            val b = normalize(label)
+            if (a.isEmpty() || b.isEmpty()) return false
+            val aliases = mapOf("유튜브" to "youtube", "크롬" to "chrome", "구글" to "google", "지메일" to "gmail")
+            val alias = aliases[a]
+            return a == b || (a.length >= 2 && (a in b || b in a)) || (alias != null && alias in b)
+        }
+
         /** 앱이 모르는 일을 AI 에 보낼 때의 목표와 slots */
         fun aiRequestFor(command: String): Pair<String, Map<String, String>> {
             val app = appSlot(command)
@@ -259,4 +280,10 @@ internal enum class GuideTask(val appPackage: String?) {
 }
 
 /** [arg] 는 자막 문장에 끼워 넣을 글자 (예: 검색어) */
-internal data class GuideStep(val caption: Int, val control: ScreenControl? = null, val arg: String? = null)
+/** [chips]: 검색창 아래에 보여 줄 자동완성 입력 단추 글자 */
+internal data class GuideStep(
+    val caption: Int,
+    val control: ScreenControl? = null,
+    val arg: String? = null,
+    val chips: List<String> = emptyList(),
+)

@@ -83,8 +83,13 @@ class GuideService : AccessibilityService() {
         )
     }
     private var voice: GuideVoice? = null
+    /** AI 상태가 어느 안내의 것인지 (멈춤·이어서는 같은 안내라 답을 그대로 씀) */
+    private var aiSerial = -1L
     private val sessionChanged: () -> Unit = {
-        resetAi()
+        if (GuideSession.active == null || GuideSession.serial != aiSerial) {
+            resetAi()
+            aiSerial = GuideSession.serial
+        }
         noTargetSince = 0L
         leftAppSince = 0L
         clearHighlight()
@@ -169,14 +174,91 @@ class GuideService : AccessibilityService() {
             clearArrow()
             arrow?.let(::showArrow)
         }
+        // 자동완성 입력 단추: 입력 칸을 짚었을 때만, 그 바로 아래
+        val anchor = decision.target?.bounds
+        if (decision.chips.isNotEmpty() && anchor != null) {
+            chipAnchor = Rect(anchor)
+            autofill.show(decision.chips, anchor)
+        } else {
+            chipAnchor = null
+            autofill.hide()
+        }
         renderCaption()
     }
 
-    /** [arrow]: 이동 방향 화살표 (상하좌우 밀기, 홈, 뒤로) */
+    // ───────────────────────── 자동완성 입력 단추 ─────────────────────────
+
+    private val autofill by lazy { AutofillChips(this, ::onAutofillPicked) }
+    private var chipAnchor: Rect? = null
+
+    /** 어르신이 "자동완성 입력"을 누름: 짚어 둔 입력 칸에 그 글자를 넣음 */
+    private fun onAutofillPicked(text: String) {
+        val anchor = chipAnchor ?: return
+        val done = fillEditableAt(anchor, text)
+        autofill.hide()
+        if (done) {
+            GuideSession.markQueryFilled()
+            scheduleLater(FILL_SETTLE_MS)
+        } else {
+            GuideCaption.post(getString(R.string.caption_autofill_failed), GuideCaption.Tone.WARN)
+        }
+        scheduleRefresh()
+    }
+
+    /** [anchor] 자리의 입력 칸(없으면 지금 글자를 쓰는 칸)에 [text] 를 넣음. 비밀번호 칸에는 넣지 않음 */
+    @Suppress("DEPRECATION")
+    private fun fillEditableAt(anchor: Rect, text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        try {
+            var best: AccessibilityNodeInfo? = null
+            var visited = 0
+            fun visit(node: AccessibilityNodeInfo): Boolean {
+                if (++visited > 1_500) return false
+                if (node.isPassword) return false
+                if (node.isEditable && node.isVisibleToUser) {
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    if (Rect.intersects(bounds, anchor)) {
+                        best = AccessibilityNodeInfo.obtain(node)
+                        return true
+                    }
+                }
+                for (index in 0 until node.childCount) {
+                    val child = node.getChild(index) ?: continue
+                    try {
+                        if (visit(child)) return true
+                    } finally {
+                        child.recycle()
+                    }
+                }
+                return false
+            }
+            visit(root)
+            val field = best ?: root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable && !it.isPassword }
+                ?: return false
+            return try {
+                val args = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                }
+                field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args).also {
+                    android.util.Log.i(TAG, "자동완성 입력: ${if (it) "성공" else "실패"}")
+                }
+            } finally {
+                field.recycle()
+            }
+        } finally {
+            root.recycle()
+        }
+    }
+
+    /**
+     * [arrow]: 이동 방향 화살표 (상하좌우 밀기, 홈, 뒤로)
+     * [chips]: [target](입력 칸) 바로 아래에 보여 줄 "자동완성 입력" 단추 글자
+     */
     private data class Decision(
         val target: Target?,
         val message: Pair<String, GuideCaption.Tone>?,
         val arrow: DirectionHint? = null,
+        val chips: List<String> = emptyList(),
     )
 
     private fun decide(foreground: String?): Decision {
@@ -187,6 +269,8 @@ class GuideService : AccessibilityService() {
         }
         if (active == null || foreground == null) return Decision(null, null)
         if (foreground in PASS_THROUGH) return Decision(highlightedTarget, guideMessage)
+        // 멈춘 동안: 표시를 모두 숨기고 AI 도 부르지 않음
+        if (active.paused) return Decision(null, getString(R.string.caption_guide_paused) to GuideCaption.Tone.INFO)
 
         val task = active.task
         val taskPackage = active.packageName
@@ -214,7 +298,9 @@ class GuideService : AccessibilityService() {
         }
 
         // 비밀번호·인증 화면: 표시 없이 직접 하시도록 (AI 에도 보내지 않음)
-        val step = screen?.let { task?.findStep(it.controls, it.hasPasswordField, query, it.hasSearchField) }
+        val step = screen?.let {
+            task?.findStep(it.controls, it.hasPasswordField, query, it.hasSearchField, active.queryFilled)
+        }
         if (captured?.blocked == true || screen?.hasPasswordField == true ||
             step?.caption == R.string.guide_authentication_stop
         ) {
@@ -222,13 +308,18 @@ class GuideService : AccessibilityService() {
             return Decision(null, getString(R.string.guide_authentication_stop) to GuideCaption.Tone.WARN)
         }
 
-        // 검색창이 열리면 말씀하신 검색어를 한 번 대신 넣어 드림 (자동 완성)
-        if (task != null && screen != null && query != null && !active.queryFilled && screen.hasSearchField) {
-            GuideSession.markQueryFilled()
-            if (fillSearchField(task, foreground, query)) {
-                scheduleLater(FILL_SETTLE_MS)
-            }
+        // 검색창이 열림 + 아직 검색어를 안 넣음: 검색창을 짚고 아래 "자동완성 입력" 단추 (어르신이 눌러야 넣음).
+        // 앱이 확실히 아는 화면이라 AI 를 부르지 않음
+        val field = screen?.searchFieldBounds
+        if (step != null && step.chips.isNotEmpty() && field != null) {
+            noTargetSince = 0L
+            val say = captionString(step.caption, step.arg)
+            val target = Target(windowId, foreground, Rect(field), text = say)
+            return Decision(target, say to GuideCaption.Tone.GUIDE, chips = step.chips)
         }
+
+        // 목적지에 도착했으면 서버를 더 부르지 않고 마침
+        goalReached(active, foreground, step)?.let { return finishGuide(it) }
 
         // 화면 안내 AI(#16): 서버가 있으면 AI 가 다음 행동을 정하고, 답하지 못하면 아래 로컬 안내로
         if (ai != null && captured != null) {
@@ -307,6 +398,33 @@ class GuideService : AccessibilityService() {
         return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO, aiLastSwipe)
     }
 
+    /** "다 됐어요" 자막을 잠시 보여 주고(읽어 주고) 안내를 마침 */
+    private fun finishGuide(say: String): Decision {
+        if (!aiDoneScheduled) {
+            aiDoneScheduled = true
+            val serial = GuideSession.serial
+            handler.postDelayed({ if (GuideSession.serial == serial) GuideSession.stop() }, AI_DONE_LINGER_MS)
+        }
+        return Decision(null, say to GuideCaption.Tone.DONE)
+    }
+
+    /**
+     * 앱이 직접 알 수 있는 도착: 끝났다는 문장, 아니면 null.
+     * - "카카오톡 열어 줘" → 지금 화면이 그 앱
+     * - "유튜브에 임영웅 검색해 줘" → 그 검색어의 결과 화면
+     */
+    private fun goalReached(active: GuideSession.Active, foreground: String, step: GuideStep?): String? {
+        val query = active.query
+        if (query != null && step?.caption == R.string.guide_youtube_results) {
+            return getString(R.string.caption_done_search, query)
+        }
+        val app = active.slots["app"]
+        if (active.goal == GuideTask.GOAL_OPEN_APP && app != null && GuideTask.isSameApp(app, appLabel(foreground))) {
+            return getString(R.string.caption_done_open_app, appLabel(foreground))
+        }
+        return null
+    }
+
     private fun seekDecision(captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
         val seek = aiSeek ?: return null
         val foundOn = aiSeekFoundOn
@@ -366,16 +484,10 @@ class GuideService : AccessibilityService() {
         aiSeekFoundOn = null
         aiLastSwipe = null
         return when (reply.type) {
-            AiReply.DONE -> {
-                if (!aiDoneScheduled) {
-                    aiDoneScheduled = true
-                    val session = GuideSession.active
-                    handler.postDelayed({ if (GuideSession.active === session) GuideSession.stop() }, AI_DONE_LINGER_MS)
-                }
-                Decision(null, say to GuideCaption.Tone.DONE)
-            }
+            AiReply.DONE -> finishGuide(say)
             AiReply.HIGHLIGHT, AiReply.SUGGEST -> {
-                val b = AiReply.findTarget(reply, captured.nodes)?.bounds
+                val node = AiReply.findTarget(reply, captured.nodes)
+                val b = node?.bounds
                 if (b == null) {
                     // 짚으라는 요소가 지금 화면에 없음: 다시 물어봄
                     aiAnswer = null
@@ -383,7 +495,9 @@ class GuideService : AccessibilityService() {
                     Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO)
                 } else {
                     val target = Target(windowId, foreground, Rect(b[0], b[1], b[2], b[3]), text = say)
-                    Decision(target, say to GuideCaption.Tone.GUIDE)
+                    // 입력 칸을 짚으면 아래에 자동완성 입력 단추 (말한 검색어 + AI 추천어)
+                    val chips = AutofillPlan.chips(reply, node, GuideSession.active)
+                    Decision(target, say to GuideCaption.Tone.GUIDE, chips = chips)
                 }
             }
             // 말 안내: "홈으로 가세요" → 홈 화살표, "뒤로 가세요" → 뒤로 화살표
@@ -408,30 +522,6 @@ class GuideService : AccessibilityService() {
         }
     }
 
-    /** 작업의 검색창([GuideTask.searchFieldIds])에 검색어를 넣음. 넣었으면 true */
-    @Suppress("DEPRECATION")
-    private fun fillSearchField(task: GuideTask, pkg: String, query: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        try {
-            for (id in task.searchFieldIds) {
-                val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$id")
-                try {
-                    val field = nodes.firstOrNull { it.isVisibleToUser && it.isEditable && !it.isPassword } ?: continue
-                    val args = Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, query)
-                    }
-                    val done = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                    android.util.Log.i(TAG, "검색어 넣기 ($id): ${if (done) "성공" else "실패"}")
-                    return done
-                } finally {
-                    nodes.forEach { it.recycle() }
-                }
-            }
-            return false
-        } finally {
-            root.recycle()
-        }
-    }
 
     @Suppress("DEPRECATION")
     private fun findPracticeTarget(): Target? {
@@ -493,6 +583,7 @@ class GuideService : AccessibilityService() {
         ) {
             floatingControls.setSosVisible(settings.sosEnabled)
             floatingControls.setGuiding(GuideSession.active != null)
+            syncMicMode()
             floatingControls.show()
         } else {
             floatingControls.hide()
@@ -524,6 +615,7 @@ class GuideService : AccessibilityService() {
     }
 
     private fun clearHighlight() {
+        autofill.hide() // 자동완성 단추는 짚은 입력 칸에 붙어 있음
         val view = highlight ?: return
         highlight = null
         highlightedTarget = null
@@ -729,10 +821,39 @@ class GuideService : AccessibilityService() {
     /** 말하기를 누른 때의 앱 (들은 말을 이 화면 기준으로 판단) */
     private var listeningForeground: String? = null
 
-    /** 말하기 단추: 듣는 중이 아니면 지금 화면 그대로 듣기 시작, 듣는 중이면 종료 */
+    /** 마이크 단추 모양: 듣는 중 > 안내 중(멈추기/이어서) > 말하기 */
+    private fun syncMicMode() {
+        val active = GuideSession.active
+        floatingControls.setMicMode(
+            when {
+                listener.isListening -> FloatingGuideControls.MicMode.LISTENING
+                active == null -> FloatingGuideControls.MicMode.SPEAK
+                active.paused -> FloatingGuideControls.MicMode.RESUME
+                else -> FloatingGuideControls.MicMode.PAUSE
+            },
+        )
+    }
+
+    /**
+     * 마이크 단추
+     * - 듣는 중: 듣기 종료
+     * - 안내 중: 멈추기 ↔ 이어서 (천천히 따라 하실 수 있게)
+     * - 그 밖: 지금 화면 그대로 듣기 시작
+     */
     private fun onMicrophone() {
         if (listener.isListening) {
             stopListening(announce = true)
+            return
+        }
+        val active = GuideSession.active
+        if (active != null) {
+            val pause = !active.paused
+            GuideSession.setPaused(pause)
+            syncMicMode()
+            GuideCaption.post(
+                getString(if (pause) R.string.caption_guide_paused else R.string.caption_guide_resumed_now),
+                GuideCaption.Tone.INFO,
+            )
             return
         }
         val foreground = activeScreenPackage()
@@ -751,12 +872,12 @@ class GuideService : AccessibilityService() {
             override fun onPartial(text: String) = GuideCaption.heard(text)
 
             override fun onFinal(text: String) {
-                floatingControls.setListening(false)
+                syncMicMode()
                 handleSpoken(text, listeningForeground)
             }
 
             override fun onFailed(error: Int) {
-                floatingControls.setListening(false)
+                syncMicMode()
                 val message = when (error) {
                     android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
                     android.speech.SpeechRecognizer.ERROR_NO_MATCH -> R.string.caption_no_speech
@@ -768,7 +889,7 @@ class GuideService : AccessibilityService() {
             }
         })
         if (started) {
-            floatingControls.setListening(true)
+            syncMicMode()
         } else {
             openInput(sos = false, foreground = foreground)
         }
@@ -777,7 +898,7 @@ class GuideService : AccessibilityService() {
     private fun stopListening(announce: Boolean) {
         if (!listener.isListening) return
         listener.stop()
-        floatingControls.setListening(false)
+        syncMicMode()
         if (announce) GuideCaption.post(getString(R.string.caption_listen_stopped), GuideCaption.Tone.INFO)
     }
 

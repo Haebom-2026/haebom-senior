@@ -14,6 +14,8 @@ internal data class GuideScreen(
     val hasScrollable: Boolean = false,
     /** 작업이 쓰는 검색창([GuideTask.searchFieldIds])이 화면에 있음 */
     val hasSearchField: Boolean = false,
+    /** 그 검색창의 자리 (빨간 테두리·자동완성 단추 위치) */
+    val searchFieldBounds: Rect? = null,
 ) {
     companion object {
         /** 웹 화면(정부24 등)은 노드가 많아서 넉넉히 */
@@ -35,6 +37,7 @@ internal data class GuideScreen(
             var hasPassword = false
             var hasScrollable = false
             var hasSearchField = false
+            var searchFieldBounds: Rect? = null
             var visited = 0
             val allowlistedLabels = task.allowedLabels + extraLabels
 
@@ -56,7 +59,10 @@ internal data class GuideScreen(
                 if (editable) {
                     // 입력 칸의 글자는 읽지 않음. 작업이 쓰는 검색창인지만 확인
                     val id = node.viewIdResourceName?.substringAfterLast('/')
-                    if (visible && id != null && id in task.searchFieldIds) hasSearchField = true
+                    if (visible && id != null && id in task.searchFieldIds && !bounds.isEmpty) {
+                        hasSearchField = true
+                        searchFieldBounds = Rect(bounds)
+                    }
                     return
                 }
                 if (visible && node.isEnabled && !bounds.isEmpty) {
@@ -92,6 +98,7 @@ internal data class GuideScreen(
             inspect(root, null, 0)
             return GuideScreen(
                 if (hasPassword) emptyList() else controls, hasPassword, hasScrollable, hasSearchField,
+                searchFieldBounds,
             )
         }
         internal fun isProtectedInput(type: Int): Boolean {

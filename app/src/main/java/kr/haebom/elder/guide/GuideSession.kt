@@ -17,21 +17,37 @@ internal object GuideSession {
         val utterance: String = "",
         val goal: String = task?.aiGoal ?: GuideTask.GOAL_UNKNOWN,
         val slots: Map<String, String> = query?.let { mapOf("query" to it) }.orEmpty(),
+        /** 어르신이 "멈추기"를 누름: 표시를 숨기고 AI 도 부르지 않음 */
+        val paused: Boolean = false,
     )
 
     var active: Active? = null
         private set
 
+    /** 안내를 새로 시작할 때마다 1씩 늘어남 (끝난 안내의 늦은 동작을 버리는 데 씀) */
+    var serial = 0L
+        private set
+
     var onChange: (() -> Unit)? = null
 
     fun start(task: GuideTask, packageName: String, query: String? = null, utterance: String = "") {
+        serial++
         active = Active(task, packageName, query, utterance = utterance)
         onChange?.invoke()
     }
 
     /** 앱이 모르는 일: 화면 안내 AI 로만 안내 */
     fun startAi(utterance: String, goal: String, slots: Map<String, String>) {
+        serial++
         active = Active(task = null, packageName = null, utterance = utterance, goal = goal, slots = slots)
+        onChange?.invoke()
+    }
+
+    /** 잠시 멈춤 ↔ 이어서 */
+    fun setPaused(paused: Boolean) {
+        val current = active ?: return
+        if (current.paused == paused) return
+        active = current.copy(paused = paused)
         onChange?.invoke()
     }
 

@@ -48,7 +48,7 @@ internal class FloatingGuideControls(
     private var params: WindowManager.LayoutParams? = null
     private var sosVisible = true
     private var guiding = false
-    private var listening = false
+    private var micMode = MicMode.SPEAK
     private var blocked: List<Box> = emptyList()
     private var mover: ValueAnimator? = null
     private val pulse = ValueAnimator.ofFloat(1f, 1.1f).apply {
@@ -157,25 +157,35 @@ internal class FloatingGuideControls(
         moveTo(plannedPosition())
     }
 
-    /** 듣는 중이면 말하기 단추가 "종료" 단추로 바뀜 (누르면 듣기를 그만둠) */
-    fun setListening(active: Boolean) {
-        if (listening == active) return
-        listening = active
+    /** 마이크 단추가 지금 하는 일 */
+    enum class MicMode { SPEAK, LISTENING, PAUSE, RESUME }
+
+    /**
+     * - SPEAK: 🎤 말하기 (누르면 지금 화면 그대로 듣기)
+     * - LISTENING: ⏹ 종료 (누르면 듣기를 그만둠)
+     * - PAUSE: ⏸ 멈추기 (안내 중. 누르면 안내를 잠시 멈춤)
+     * - RESUME: ▶ 이어서 (멈춘 안내를 다시 시작)
+     */
+    fun setMicMode(mode: MicMode) {
+        if (micMode == mode) return
+        micMode = mode
         mic?.let(::paintMic)
         applyPulse()
     }
 
     private fun paintMic(button: TextView) {
-        if (listening) {
-            button.text = "⏹\n" + context.getString(R.string.floating_listen_stop)
-            button.contentDescription = context.getString(R.string.floating_listen_stop_description)
-            (button.background as? GradientDrawable)?.setColor(LISTENING_COLOR)
-        } else {
-            button.text = "🎤\n" + context.getString(R.string.floating_mic)
-            button.contentDescription = context.getString(R.string.floating_mic_description)
-            (button.background as? GradientDrawable)?.setColor(MIC_COLOR)
+        val (icon, label, description, color) = when (micMode) {
+            MicMode.SPEAK -> MicLook("🎤", R.string.floating_mic, R.string.floating_mic_description, MIC_COLOR)
+            MicMode.LISTENING -> MicLook("⏹", R.string.floating_listen_stop, R.string.floating_listen_stop_description, LISTENING_COLOR)
+            MicMode.PAUSE -> MicLook("⏸", R.string.floating_pause, R.string.floating_pause_description, PAUSE_COLOR)
+            MicMode.RESUME -> MicLook("▶", R.string.floating_resume, R.string.floating_resume_description, RESUME_COLOR)
         }
+        button.text = icon + "\n" + context.getString(label)
+        button.contentDescription = context.getString(description)
+        (button.background as? GradientDrawable)?.setColor(color)
     }
+
+    private data class MicLook(val icon: String, val label: Int, val description: Int, val color: Int)
 
     fun setGuiding(active: Boolean) {
         if (guiding == active) return
@@ -238,7 +248,8 @@ internal class FloatingGuideControls(
     }
 
     private fun applyPulse() {
-        if ((guiding || listening) && panel != null && ValueAnimator.areAnimatorsEnabled()) {
+        val moving = micMode == MicMode.LISTENING || micMode == MicMode.PAUSE
+        if (moving && panel != null && ValueAnimator.areAnimatorsEnabled()) {
             if (!pulse.isRunning) pulse.start()
         } else {
             pulse.cancel()
@@ -332,5 +343,9 @@ internal class FloatingGuideControls(
         val MIC_COLOR = Color.rgb(30, 76, 156)
         /** 듣는 중: 눈에 띄는 주황 */
         val LISTENING_COLOR = Color.rgb(214, 92, 0)
+        /** 안내 중 멈추기: 짙은 남색 */
+        val PAUSE_COLOR = Color.rgb(40, 52, 120)
+        /** 멈춤 → 이어서: 초록 */
+        val RESUME_COLOR = Color.rgb(20, 128, 60)
     }
 }
