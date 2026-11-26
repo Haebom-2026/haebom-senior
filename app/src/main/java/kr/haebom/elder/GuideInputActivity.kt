@@ -18,8 +18,13 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import kr.haebom.elder.family.Assessment
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
+import kr.haebom.elder.family.Level
+import kr.haebom.elder.family.SensitiveAlerter
+import kr.haebom.elder.family.SensitiveApps
+import kr.haebom.elder.family.Sensitivity
 import kr.haebom.elder.family.SosContact
 import kr.haebom.elder.guide.GuideCaption
 import kr.haebom.elder.guide.GuideSession
@@ -185,13 +190,17 @@ class GuideInputActivity : Activity() {
             return
         }
         showHeard(spoken)
-        if (GuideTask.isScamCommand(spoken)) {
+        val assessment = Sensitivity.fromCommand(spoken, foregroundPackage)
+        // L3 사기 의심: 동의 없이 바로 보호자에게 알리고 안내를 멈춤
+        if (assessment.level == Level.L3) {
             GuideSession.stop()
-            GuideCaption.post(getString(R.string.caption_scam), GuideCaption.Tone.WARN, durationMs = 12_000)
+            handlingResult = true
+            GuideCaption.post(getString(R.string.alert_scam), GuideCaption.Tone.WARN, durationMs = 12_000)
+            SensitiveAlerter.send(this, assessment, appLabel(foregroundPackage), foregroundPackage.orEmpty())
             AlertDialog.Builder(this)
-                .setMessage(R.string.scam_warning)
+                .setMessage(R.string.alert_scam)
                 .setPositiveButton(R.string.sos) { _, _ -> openSms() }
-                .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+                .setNegativeButton(R.string.alert_stop) { _, _ -> finish() }
                 .setOnCancelListener { finish() }
                 .show()
             return
@@ -200,16 +209,15 @@ class GuideInputActivity : Activity() {
             openSms()
             return
         }
-        if (GuideTask.isFinance(foregroundPackage, spoken)) {
-            GuideSession.stop()
-            GuideCaption.post(getString(R.string.guide_bank_stop), GuideCaption.Tone.WARN, durationMs = 10_000)
-            showGuideMessage(this, R.string.guide_bank_stop, ::finish)
-            return
-        }
         if (GuideTask.isPrivateCommand(spoken)) {
             GuideSession.stop()
             GuideCaption.post(getString(R.string.caption_private), GuideCaption.Tone.WARN, durationMs = 10_000)
             showGuideMessage(this, R.string.guide_authentication_stop, ::finish)
+            return
+        }
+        // L2 금융: 막지 않음. 경고 + 동의 없이 바로 알림 + 계속할지 어르신이 고름
+        if (assessment.level == Level.L2) {
+            warnFinance(spoken, assessment)
             return
         }
         val task = GuideTask.forCommand(spoken, foregroundPackage)
@@ -225,6 +233,36 @@ class GuideInputActivity : Activity() {
             startGuide(this, task, foregroundPackage, ::finish, announce = false)
         }
     }
+
+    private fun warnFinance(spoken: String, assessment: Assessment) {
+        GuideSession.stop()
+        handlingResult = true
+        val bankPackage = Sensitivity.financeAppFor(spoken)
+            ?.takeIf { packageManager.getLaunchIntentForPackage(it) != null }
+        val target = bankPackage ?: foregroundPackage?.takeIf { SensitiveApps.category(it) == SensitiveApps.CATEGORY_FINANCE }
+        if (SensitiveAlerter.claim(SensitiveAlerter.keyFor(assessment, target))) {
+            SensitiveAlerter.send(this, assessment, appLabel(target), target.orEmpty())
+        }
+        GuideCaption.post(getString(R.string.alert_finance_command), GuideCaption.Tone.WARN, durationMs = 10_000)
+        AlertDialog.Builder(this)
+            .setMessage(R.string.alert_finance_command)
+            .setPositiveButton(R.string.alert_continue) { _, _ ->
+                val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
+                when {
+                    launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
+                }
+                finish()
+            }
+            .setNegativeButton(R.string.alert_stop) { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
+    }
+
+    /** 패키지 → 앱 이름 (없으면 "금융 요청") */
+    private fun appLabel(pkg: String?): String = pkg?.let {
+        runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(it, 0)).toString() }.getOrNull()
+    } ?: getString(R.string.alert_app_unknown)
 
     /**
      * 도움 요청 문자. 저장된 보호자가 한 명이면 바로, 여러 명이면 고르게, 없으면 번호를 입력받음.

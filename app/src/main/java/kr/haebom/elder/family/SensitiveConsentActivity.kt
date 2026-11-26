@@ -54,10 +54,15 @@ class SensitiveConsentActivity : Activity() {
             return
         }
         setButtonsEnabled(false)
+        val packageName = intent.getStringExtra(EXTRA_PACKAGE).orEmpty()
+        val assessment = Sensitivity.fromApp(packageName).takeIf { it.level != Level.L0 }
+            ?: Assessment(Level.L1, intent.getStringExtra(EXTRA_CATEGORY).orEmpty(), "공공 민원 앱 사용")
         gateway.reportSensitiveEntry(
             appName = intent.getStringExtra(EXTRA_APP_NAME).orEmpty(),
-            packageName = intent.getStringExtra(EXTRA_PACKAGE).orEmpty(),
-            category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty(),
+            packageName = packageName,
+            category = assessment.category,
+            level = assessment.level.wire,
+            reason = assessment.reason + " (어르신 동의)",
         ) { outcome ->
             if (isFinishing || isDestroyed) return@reportSensitiveEntry
             val names = outcome.guardianLabels.joinToString(", ") { "$it 님" }

@@ -64,6 +64,8 @@ internal data class SensitiveNotice(
     val packageName: String,
     val category: String,
     val createdAt: Long,
+    val level: String = "L1",
+    val reason: String = "",
 )
 
 /** #6 응답의 result 값과 같음 */
@@ -109,8 +111,18 @@ internal interface FamilyGateway {
     /** 고령자 쪽 해제 (#12): 보호자 앱에 보이는 해제 확인 코드가 맞아야 끊김 */
     fun disconnect(guardianId: String, releaseCode: String, done: (DisconnectResult) -> Unit)
 
-    /** 민감 앱 이용 알림 (#6). 어르신이 "예"를 골랐을 때만 부름 */
-    fun reportSensitiveEntry(appName: String, packageName: String, category: String, done: (NoticeOutcome) -> Unit)
+    /**
+     * 민감 알림 (#6). L1 은 어르신이 "예"를 골랐을 때만, L2·L3 는 바로 부름.
+     * [level] L1~L3, [reason] 왜 알리는지 짧은 말 (서버가 보호자 앱에 보여 줌)
+     */
+    fun reportSensitiveEntry(
+        appName: String,
+        packageName: String,
+        category: String,
+        level: String,
+        reason: String,
+        done: (NoticeOutcome) -> Unit,
+    )
 }
 
 internal object Family {

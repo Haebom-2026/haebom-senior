@@ -21,8 +21,9 @@ import kr.haebom.elder.GuideInputActivity
 import kr.haebom.elder.R
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
-import kr.haebom.elder.family.SensitiveApps
+import kr.haebom.elder.family.SensitiveAlerter
 import kr.haebom.elder.family.SensitiveConsentActivity
+import kr.haebom.elder.family.Sensitivity
 
 /**
  * 접근성 서비스 본체. 화면이 바뀔 때마다(0.5초 묶음) 지금 상황을 판단해 세 가지 오버레이를 맞춥니다.
@@ -36,7 +37,7 @@ import kr.haebom.elder.family.SensitiveConsentActivity
  *   - 다른 앱으로 나감   : 표시를 지우고 "다시 열면 이어서 안내할게요"
  *   - 키보드가 뜸        : 자막과 마이크를 키보드 위로
  *   - 잠금 화면          : 모두 숨김
- *   - 민감 앱(은행·정부24)에 들어감 : 보호자 알림 동의 팝업 (같은 앱은 10분 동안 다시 묻지 않음)
+ *   - 정부24 등 공공 앱(L1) : 보호자 알림 동의 팝업 / 은행·금융 앱(L2) : 경고 자막 + 바로 알림 (같은 일은 10분에 한 번)
  */
 class GuideService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -63,7 +64,6 @@ class GuideService : AccessibilityService() {
     private var spokenSerial = 0L
     private var noTargetSince = 0L
     private var leftAppSince = 0L
-    private val sensitiveAsked = mutableMapOf<String, Long>()
     private var lastForeground: String? = null
 
     private val floatingControls by lazy {
@@ -231,18 +231,32 @@ class GuideService : AccessibilityService() {
     }
 
     /** 민감 앱에 들어오면 보호자에게 알릴지 묻기 (어르신이 "예"를 골라야만 보냄) */
+    /**
+     * 민감 앱에 들어왔을 때 (단계는 [Sensitivity.fromApp]).
+     * - L1 공공(정부24 등): "보호자에게 알릴까요?" 물어봄 (설정에서 끌 수 있음)
+     * - L2 금융: 막지 않고 경고 자막 + 동의 없이 바로 보호자 알림
+     * 같은 일은 10분에 한 번만.
+     */
     private fun onForegroundApp(pkg: String) {
         if (pkg == lastForeground) return
         lastForeground = pkg
-        if (pkg == packageName || !settings.sensitiveAlerts || Family.gateway == null) return
-        val category = SensitiveApps.category(pkg) ?: return
-        val now = SystemClock.elapsedRealtime()
-        val last = sensitiveAsked[pkg]
-        if (last != null && now - last < Family.NOTICE_COOLDOWN_MS) return
-        sensitiveAsked[pkg] = now
-        startActivity(
-            SensitiveConsentActivity.intent(this, pkg, appLabel(pkg), category).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        if (pkg == packageName) return
+        val assessment = Sensitivity.fromApp(pkg)
+        when {
+            assessment.level.alertNow -> {
+                if (!SensitiveAlerter.claim(SensitiveAlerter.keyFor(assessment, pkg))) return
+                GuideCaption.post(getString(R.string.alert_finance_app), GuideCaption.Tone.WARN, durationMs = 8_000)
+                handler.postDelayed({ SensitiveAlerter.send(this, assessment, appLabel(pkg), pkg) }, 3_000)
+            }
+            assessment.level.askFirst -> {
+                if (!settings.sensitiveAlerts || Family.gateway == null) return
+                if (!SensitiveAlerter.claim("ask:$pkg")) return
+                startActivity(
+                    SensitiveConsentActivity.intent(this, pkg, appLabel(pkg), assessment.category)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
     }
 
     // ───────────────────────── 오버레이 ─────────────────────────

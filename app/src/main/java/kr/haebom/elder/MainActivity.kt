@@ -109,7 +109,7 @@ class MainActivity : Activity() {
             settings.sosEnabled = it
             sosButton.visible(it)
         })
-        page.addView(switchRow(getString(R.string.main_sensitive_switch), null, settings.sensitiveAlerts) {
+        page.addView(switchRow(getString(R.string.main_sensitive_switch), getString(R.string.main_sensitive_switch_help), settings.sensitiveAlerts) {
             settings.sensitiveAlerts = it
         })
 

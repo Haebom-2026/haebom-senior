@@ -123,9 +123,19 @@ internal class ServerFamilyGateway(
         }
     }
 
-    override fun reportSensitiveEntry(appName: String, packageName: String, category: String, done: (NoticeOutcome) -> Unit) {
+    override fun reportSensitiveEntry(
+        appName: String,
+        packageName: String,
+        category: String,
+        level: String,
+        reason: String,
+        done: (NoticeOutcome) -> Unit,
+    ) {
         io.execute {
-            val body = JSONObject().put("packageName", packageName).put("appName", appName).put("category", category).toString()
+            val body = JSONObject()
+                .put("packageName", packageName).put("appName", appName)
+                .put("category", category).put("level", level).put("reason", reason)
+                .toString()
             val reply = api.call("POST", "/v1/elder/sensitive-entries", body, UUID.randomUUID().toString())
             val labels = links().map { it.labelForElder }
             val outcome = when (reply.json()?.optString("result")) {
@@ -134,7 +144,7 @@ internal class ServerFamilyGateway(
                 "no_guardians" -> NoticeOutcome(NoticeResult.NO_GUARDIANS)
                 else -> NoticeOutcome(NoticeResult.FAILED)
             }
-            Log.d(TAG, "민감 알림 #6 → ${reply.code} ${outcome.result}")
+            Log.d(TAG, "민감 알림 #6 ($level $category) → ${reply.code} ${reply.reason ?: ""} ${outcome.result}")
             main.post { done(outcome) }
         }
     }

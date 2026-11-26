@@ -163,7 +163,18 @@
     <string name="main_family_summary">연결된 가족 %1$d명</string>
     <string name="main_sos_switch">화면 위 SOS 버튼 보이기</string>
     <string name="main_sos_switch_help">끄면 다른 앱 위의 SOS 버튼과 이 화면의 도움 요청 단추가 숨겨져요.</string>
-    <string name="main_sensitive_switch">은행·정부24를 열면 보호자에게 알릴지 묻기</string>
+    <string name="main_sensitive_switch">정부24 같은 공공 앱을 열면 보호자에게 알릴지 묻기</string>
+    <string name="main_sensitive_switch_help">은행·금융과 사기 의심은 이 설정과 상관없이 보호자에게 바로 알려요.</string>
     <string name="sos_choose">누구에게 문자를 보낼까요?</string>
     <string name="sos_save_number">이 번호를 보호자로 저장</string>
+
+    <!-- 민감도 L2·L3 -->
+    <string name="alert_finance_command">금융 관련 일이에요. 보호자에게 바로 알릴게요. 비밀번호와 인증번호는 해봄이 보지 않으니 직접 입력해 주세요. 계속할까요?</string>
+    <string name="alert_finance_app">은행·금융 앱이에요. 보호자에게 바로 알렸어요. 비밀번호와 인증은 직접 입력해 주세요.</string>
+    <string name="alert_continue">계속하기</string>
+    <string name="alert_stop">그만두기</string>
+    <string name="alert_open_bank">사용하시는 은행 앱을 열어 직접 진행해 주세요.</string>
+    <string name="alert_scam">사기일 수 있어요. 보호자에게 바로 알렸어요. 돈을 보내거나 앱을 설치하지 말고, 먼저 보호자에게 전화해 주세요.</string>
+    <string name="alert_app_unknown">금융 요청</string>
+    <string name="alert_unavailable">보호자 연결이 아직 없어서 알림을 보내지 못했어요.</string>
 </resources>

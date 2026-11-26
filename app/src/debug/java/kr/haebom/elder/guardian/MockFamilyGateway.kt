@@ -35,8 +35,10 @@ internal class MockFamilyGateway(
         appName: String,
         packageName: String,
         category: String,
+        level: String,
+        reason: String,
         done: (NoticeOutcome) -> Unit,
-    ) = answer(done) { repo.reportSensitiveEntry(elderId, appName, packageName, category) }
+    ) = answer(done) { repo.reportSensitiveEntry(elderId, appName, packageName, category, level, reason) }
 
     /** 서버처럼 결과를 다음 메인 루프에서 돌려줌 (화면 코드가 비동기 흐름을 그대로 쓰게) */
     private fun <T> answer(done: (T) -> Unit, work: () -> T) {

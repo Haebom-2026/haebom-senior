@@ -177,7 +177,7 @@ class MockGuardianActivity : Activity() {
         for (notice in notices) {
             noticeList.addView(ElderUi.card(this).apply {
                 addView(ElderUi.text(context, getString(R.string.mock_notice_line, notice.appName), 20f, ElderUi.INK, bold = true))
-                addView(ElderUi.body(context, "${clock.format(Date(notice.createdAt))} · ${notice.category}", 16f))
+                addView(ElderUi.body(context, "${clock.format(Date(notice.createdAt))} · ${notice.level} ${notice.category} · ${notice.reason}", 16f))
             })
         }
         updateCountdowns()

@@ -147,11 +147,18 @@ internal class MockGuardianRepository(
 
     // ───────────── 민감 앱 알림 (#6) ─────────────
 
-    fun reportSensitiveEntry(elderId: String, appName: String, packageName: String, category: String): NoticeOutcome {
+    fun reportSensitiveEntry(
+        elderId: String,
+        appName: String,
+        packageName: String,
+        category: String,
+        level: String = "L1",
+        reason: String = "",
+    ): NoticeOutcome {
         val guardians = linksForElder(elderId)
         if (guardians.isEmpty()) return NoticeOutcome(NoticeResult.NO_GUARDIANS)
         val currentTime = now()
-        val key = elderId to packageName
+        val key = elderId to packageName.ifEmpty { "$category:$reason" }
         val last = lastNoticeAt[key]
         if (last != null && currentTime - last < Family.NOTICE_COOLDOWN_MS) {
             return NoticeOutcome(NoticeResult.DUPLICATE_SUPPRESSED, guardians.map { it.labelForElder })
@@ -165,6 +172,8 @@ internal class MockGuardianRepository(
             packageName = packageName,
             category = category,
             createdAt = currentTime,
+            level = level,
+            reason = reason,
         )
         notifyObservers()
         return NoticeOutcome(NoticeResult.CREATED, guardians.map { it.labelForElder })
