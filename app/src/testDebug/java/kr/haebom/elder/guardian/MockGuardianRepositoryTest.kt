@@ -1,5 +1,10 @@
 package kr.haebom.elder.guardian
 
+import kr.haebom.elder.family.ApprovalStatus
+import kr.haebom.elder.family.DisconnectResult
+import kr.haebom.elder.family.FamilyLink
+import kr.haebom.elder.family.GuardianApproval
+import kr.haebom.elder.family.NoticeResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -150,6 +155,77 @@ class MockGuardianRepositoryTest {
         assertTrue(receiver.receive(repository.approval(third.id)))
         assertEquals(ApprovalStatus.EXPIRED, receiver.current?.status)
     }
+
+    @Test
+    fun elderDisconnectNeedsTheGuardiansReleaseCode() {
+        link("elder", "a", guardianLabel = "큰딸")
+        link("elder", "b", guardianLabel = "아들")
+        assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "a", "123456"))
+
+        val release = requireNotNull(repository.issueReleaseCode("elder", "a"))
+        assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "a", "000000"))
+        assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "b", release.code))
+        assertEquals(DisconnectResult.DISCONNECTED, repository.disconnectByElder("elder", "a", release.code))
+        assertEquals(listOf("b"), repository.linksForElder("elder").map { it.guardianId })
+        assertEquals(DisconnectResult.NOT_LINKED, repository.disconnectByElder("elder", "a", release.code))
+    }
+
+    @Test
+    fun releaseCodesExpireAndStopWorkingAfterFiveWrongTries() {
+        link("elder", "a")
+        val expiring = requireNotNull(repository.issueReleaseCode("elder", "a"))
+        time = expiring.expiresAt
+        assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "a", expiring.code))
+
+        val fresh = requireNotNull(repository.issueReleaseCode("elder", "a"))
+        repeat(MockGuardianRepository.MAX_RELEASE_FAILURES) {
+            assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "a", "999999"))
+        }
+        assertEquals(DisconnectResult.WRONG_CODE, repository.disconnectByElder("elder", "a", fresh.code))
+        assertEquals(1, repository.linksForElder("elder").size)
+        assertNull(repository.issueReleaseCode("elder", "nobody"))
+    }
+
+    @Test
+    fun elderCanRenameAGuardianWithoutChangingTheGuardiansView() {
+        link("elder", "a", elderLabel = "어머니", guardianLabel = "김준표")
+        assertTrue(repository.renameGuardian("elder", "a", "  김영표 "))
+        val renamed = repository.linksForElder("elder").single()
+        assertEquals("김영표", renamed.labelForElder)
+        assertEquals("어머니", renamed.labelForGuardian)
+        assertFalse(repository.renameGuardian("elder", "nobody", "누구"))
+    }
+
+    @Test
+    fun sensitiveNoticesReachEveryLinkedGuardianOncePerTenMinutes() {
+        assertEquals(NoticeResult.NO_GUARDIANS, notice("viva.republica.toss").result)
+        link("elder", "a", guardianLabel = "큰딸")
+        link("elder", "b", guardianLabel = "아들")
+
+        val first = notice("viva.republica.toss")
+        assertEquals(NoticeResult.CREATED, first.result)
+        assertEquals(listOf("큰딸", "아들"), first.guardianLabels)
+        assertEquals(NoticeResult.DUPLICATE_SUPPRESSED, notice("viva.republica.toss").result)
+        assertEquals(NoticeResult.CREATED, notice("kr.go.minwon.m").result)
+        time += 600_000
+        assertEquals(NoticeResult.CREATED, notice("viva.republica.toss").result)
+
+        assertEquals(3, repository.noticesForGuardian("a").size)
+        assertEquals("토스", repository.noticesForGuardian("b").first().appName)
+        repository.disconnect("elder", "b")
+        assertTrue(repository.noticesForGuardian("b").isEmpty())
+    }
+
+    @Test
+    fun pendingApprovalIsCancelledWhenNoLinkedGuardianIsLeft() {
+        link("elder", "a")
+        val approval = requireNotNull(request("elder"))
+        assertTrue(repository.disconnect("elder", "a"))
+        assertEquals(ApprovalStatus.CANCELLED, repository.approval(approval.id)?.status)
+    }
+
+    private fun notice(pkg: String) =
+        repository.reportSensitiveEntry("elder", if (pkg.contains("toss")) "토스" else "정부24", pkg, "finance")
 
     private fun link(
         elderId: String,

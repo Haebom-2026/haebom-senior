@@ -1,5 +1,8 @@
 package kr.haebom.elder.guardian
 
+import kr.haebom.elder.family.ApprovalStatus
+import kr.haebom.elder.family.GuardianApproval
+
 internal class MockApprovalReceiver(
     private val now: () -> Long = System::currentTimeMillis,
 ) {

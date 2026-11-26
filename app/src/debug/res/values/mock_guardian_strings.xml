@@ -1,23 +1,27 @@
 <resources>
-    <string name="mock_title">보호자 연동 연습</string>
-    <string name="mock_description">기기 안의 가상 어르신과 보호자로 확인하는 화면입니다. 앱을 다시 열면 연습 데이터가 초기화됩니다.</string>
-    <string name="mock_elder_section">고령자 앱 보기</string>
-    <string name="mock_guardian_section">보호자 앱 보기</string>
+    <string name="mock_title">보호자 앱 흉내 (Mock)</string>
+    <string name="mock_description">고령자 앱의 ‘가족 연결’ 화면과 같은 기기 메모리를 씁니다. 앱을 다시 열면 연습 데이터가 초기화됩니다.</string>
+    <string name="mock_guardian_section">보호자 고르기</string>
     <string name="mock_guardian_a">보호자 A</string>
     <string name="mock_guardian_b">보호자 B</string>
-    <string name="mock_issue_code">6자리 연결 코드 발급</string>
-    <string name="mock_code_none">아직 연결 코드가 없어요.</string>
-    <string name="mock_code_used">연결 코드가 사용됐어요. 추가하려면 새 코드를 발급하세요.</string>
-    <string name="mock_code_format">코드 %1$s · 남은 시간 %2$d초</string>
+    <string name="mock_code_none">고령자 앱 ‘가족 연결’에서 연결 코드를 받아 주세요.</string>
+    <string name="mock_active_code">고령자 앱의 지금 코드: %1$s · 남은 시간 %2$d초</string>
     <string name="mock_code_hint">연결 코드 6자리</string>
-    <string name="mock_connect">선택한 보호자 연결</string>
+    <string name="mock_paste_code">고령자 앱의 지금 코드 넣기</string>
+    <string name="mock_connect">이 보호자로 연결</string>
     <string name="mock_connected">보호자 연결을 반영했어요.</string>
     <string name="mock_code_invalid">코드가 만료됐거나 이미 사용됐는지 확인해 주세요. 이미 연결된 가족은 목록에 표시돼요.</string>
-    <string name="mock_no_links">연결된 가족이 없어요.</string>
-    <string name="mock_elder_link">고령자 쪽에서 %1$s 해제</string>
+    <string name="mock_no_links">연결된 어르신이 없어요.</string>
+    <string name="mock_linked_elder">%1$s (어르신이 부르는 이름: %2$s)</string>
+    <string name="mock_release_code">해제 확인 코드: %1$s</string>
+    <string name="mock_show_release">해제 확인 코드 만들기</string>
     <string name="mock_guardian_link">보호자 쪽에서 %1$s 해제</string>
-    <string name="mock_request">정부24 안내 승인 요청</string>
-    <string name="mock_cancel">승인 요청 취소</string>
+    <string name="mock_notices">받은 알림</string>
+    <string name="mock_no_notices">받은 알림이 없어요.</string>
+    <string name="mock_notice_line">어머니가 %1$s에 접속했어요</string>
+    <string name="mock_approval_section">승인 연습</string>
+    <string name="mock_request">정부24 안내 승인 요청 (고령자 쪽)</string>
+    <string name="mock_cancel">승인 요청 취소 (고령자 쪽)</string>
     <string name="mock_approve">계속 도와주기</string>
     <string name="mock_reject">안내 멈추기</string>
     <string name="mock_status_none">승인 요청이 없어요.</string>
@@ -32,6 +36,4 @@
     <string name="mock_elder_label">어머니</string>
     <string name="mock_a_label">큰딸</string>
     <string name="mock_b_label">아들</string>
-    <string name="mock_disconnect_confirm">%1$s 님과 연결을 끊을까요? 끊으면 %1$s 님에게 더 이상 알림과 승인 요청이 가지 않아요.</string>
-    <string name="mock_disconnect_yes">연결 끊기</string>
 </resources>
