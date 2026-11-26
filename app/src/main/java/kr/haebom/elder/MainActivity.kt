@@ -16,6 +16,8 @@ import android.widget.Switch
 import android.widget.TextView
 import android.graphics.Color
 import android.view.View
+import kr.haebom.elder.family.ChallengeActivity
+import kr.haebom.elder.family.Challenges
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
 import kr.haebom.elder.family.FamilyActivity
@@ -47,6 +49,8 @@ class MainActivity : Activity() {
     private lateinit var sosButton: Button
     private lateinit var familySummary: TextView
     private var familySubscription: AutoCloseable? = null
+    private lateinit var challengeCards: LinearLayout
+    private var challengeSubscription: AutoCloseable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +74,10 @@ class MainActivity : Activity() {
         hero.addView(openSettings)
         statusCard = hero
         page.addView(hero)
+
+        // 가족이 보낸 도전·칭찬: 있을 때만 보임 (재촉하지 않음, 숫자만)
+        challengeCards = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        page.addView(challengeCards)
 
         // 도움 받기: 큰 말하기 단추 + 바둑판 단추 넷
         page.addView(ElderUi.section(this, getString(R.string.main_section_help)))
@@ -127,17 +135,53 @@ class MainActivity : Activity() {
         })
 
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) addDeveloperTools(page)
+        openFromNotification(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFromNotification(intent)
+    }
+
+    /** 서버의 도전 화면 알림을 눌러 들어옴 (FCM data: kind=challenge, change=sent|cheered, id) */
+    private fun openFromNotification(intent: Intent?) {
+        val extras = intent?.extras ?: return
+        if (extras.getString("kind") != "challenge") return
+        val change = extras.getString("change")
+        if (change != "sent" && change != "cheered") return
+        startActivity(ChallengeActivity.intent(this, id = extras.getString("id"), cheer = change == "cheered"))
+    }
+
+    private fun renderChallenges() {
+        challengeCards.removeAllViews()
+        val list = Challenges.gateway?.cached().orEmpty()
+        val open = Challenges.openInOrder(list).size
+        val cheers = Challenges.unseenCheers(list, settings.cheersSeen).size
+        if (cheers > 0) {
+            challengeCards.addView(ElderUi.button(this, getString(R.string.challenge_home_cheer, cheers)) {
+                startActivity(ChallengeActivity.intent(this, cheer = true))
+            }.apply { minHeight = ElderUi.dp(context, 84); textSize = 24f })
+        }
+        if (open > 0) {
+            challengeCards.addView(ElderUi.button(this, getString(R.string.challenge_home_card, open), ElderUi.Kind.SECONDARY) {
+                startActivity(ChallengeActivity.intent(this))
+            }.apply { minHeight = ElderUi.dp(context, 84); textSize = 24f })
+        }
     }
 
     override fun onStart() {
         super.onStart()
         familySubscription = Family.gateway?.observe { renderFamily() }
         if (familySubscription == null) renderFamily()
+        challengeSubscription = Challenges.gateway?.observe { renderChallenges() }
+        Challenges.gateway?.refresh()
     }
 
     override fun onStop() {
         familySubscription?.close()
         familySubscription = null
+        challengeSubscription?.close()
+        challengeSubscription = null
         super.onStop()
     }
 
@@ -195,6 +239,9 @@ class MainActivity : Activity() {
         page.addView(ElderUi.section(this, getString(R.string.main_section_dev)))
         page.addView(ElderUi.button(this, getString(R.string.open_dev_viewer), ElderUi.Kind.QUIET) {
             startActivity(Intent().setClassName(packageName, "kr.haebom.elder.dev.DevViewerActivity"))
+        })
+        page.addView(ElderUi.button(this, getString(R.string.challenge_preview), ElderUi.Kind.QUIET) {
+            startActivity(ChallengeActivity.intent(this, preview = true))
         })
         val firebaseStatus = ElderUi.body(this, "", 17f)
         val check = ElderUi.button(this, getString(R.string.firebase_check), ElderUi.Kind.QUIET) {}

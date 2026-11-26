@@ -233,6 +233,28 @@
     <string name="confirm_no">아니요</string>
     <string name="caption_sensitive_done">입력하셨네요. 이어서 안내할게요.</string>
     <!-- 로그인·인증 화면 안내 (AuthGuide). 비밀 칸은 해봄이 보지도 넣지도 않음 -->
+    <!-- 가족의 도전 (S4 제안). 숙제가 아님: 재촉·실패·순위 없음 -->
+    <string name="challenge_family">가족</string>
+    <string name="challenge_home_card">🎯 가족이 보낸 도전 %1$d개</string>
+    <string name="challenge_home_cheer">💌 가족이 보낸 칭찬 %1$d개</string>
+    <string name="challenge_sent_by">%1$s 도전을 보냈어요</string>
+    <string name="challenge_try">해 볼게요</string>
+    <string name="challenge_later">다음에 할게요</string>
+    <string name="challenge_later_done">알겠어요. 하고 싶으실 때 다시 눌러 주세요.</string>
+    <string name="challenge_doing">하고 계신 도전이에요</string>
+    <string name="challenge_get_help">🎤 해봄에게 도움 받기</string>
+    <string name="challenge_done_button">해냈어요!</string>
+    <string name="challenge_done_title">해내셨어요!</string>
+    <string name="challenge_done_body">가족에게 알렸어요.</string>
+    <string name="challenge_cheer_from">%1$s 칭찬을 보냈어요</string>
+    <string name="challenge_ok">확인</string>
+    <string name="challenge_none">지금은 가족이 보낸 도전이 없어요.</string>
+    <string name="challenge_failed">지금은 가족 도전을 불러오지 못했어요. 잠시 뒤 다시 해 주세요.</string>
+    <string name="challenge_send_failed">인터넷이 잘 안 돼서 전하지 못했어요. 잠시 뒤 다시 눌러 주세요.</string>
+    <string name="challenge_caption_sent">%1$s 도전을 보냈어요. 해봄 앱에서 볼 수 있어요.</string>
+    <string name="challenge_caption_cheered">%1$s 칭찬을 보냈어요. 해봄 앱에서 볼 수 있어요.</string>
+    <string name="challenge_preview">도전 화면 미리 보기 (서버에 보내지 않음)</string>
+
     <!-- 어르신이 고르기 (앱·로그인 방법). 해봄이 하나로 정하지 않음 -->
     <string name="pick_title">💬 골라 주세요</string>
     <string name="pick_other">다른 방법</string>

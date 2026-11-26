@@ -62,6 +62,9 @@
         <activity
             android:name=".family.FamilyActivity"
             android:exported="false" />
+        <activity
+            android:name=".family.ChallengeActivity"
+            android:exported="false" />
         <service
             android:name=".family.HaebomMessagingService"
             android:exported="false">

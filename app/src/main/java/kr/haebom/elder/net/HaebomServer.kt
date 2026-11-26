@@ -2,8 +2,12 @@ package kr.haebom.elder.net
 
 import android.content.Context
 import kr.haebom.elder.BuildConfig
+import kr.haebom.elder.family.Challenges
+import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
+import kr.haebom.elder.family.ServerChallenges
 import kr.haebom.elder.family.ServerFamilyGateway
+import kr.haebom.elder.guide.GuideSession
 
 /**
  * 해봄 서버 연결 한 곳. [BuildConfig.API_BASE] 가 비어 있으면(release, 서버 주소 미정) 아무것도 켜지 않음.
@@ -21,5 +25,9 @@ internal object HaebomServer {
         val server = HaebomApi(app, BuildConfig.API_BASE)
         api = server
         Family.gateway = ServerFamilyGateway(app, server).also { it.start() }
+        // 가족의 도전 (S4 제안): 서버에 경로가 생기면 홈에 "가족이 보낸 도전" 카드가 보임
+        Challenges.gateway = ServerChallenges(server)
+        val settings = ElderSettings(app)
+        GuideSession.onStarted = { settings.markChallengeHelp() }
     }
 }

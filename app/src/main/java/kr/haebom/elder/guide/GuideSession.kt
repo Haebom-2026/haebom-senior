@@ -31,9 +31,13 @@ internal object GuideSession {
 
     var onChange: (() -> Unit)? = null
 
+    /** 안내가 새로 시작될 때 (가족의 도전 중 도우미를 썼는지 기록) */
+    var onStarted: (() -> Unit)? = null
+
     fun start(task: GuideTask, packageName: String, query: String? = null, utterance: String = "") {
         serial++
         active = Active(task, packageName, query, utterance = utterance.ifBlank { task.defaultUtterance(query) })
+        onStarted?.invoke()
         onChange?.invoke()
     }
 
@@ -41,6 +45,7 @@ internal object GuideSession {
     fun startAi(utterance: String, goal: String, slots: Map<String, String>) {
         serial++
         active = Active(task = null, packageName = null, utterance = utterance, goal = goal, slots = slots)
+        onStarted?.invoke()
         onChange?.invoke()
     }
 

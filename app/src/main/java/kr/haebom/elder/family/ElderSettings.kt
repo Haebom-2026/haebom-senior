@@ -93,7 +93,33 @@ internal class ElderSettings(context: Context) {
         return (linked + listOfNotNull(manual)).distinctBy { it.phone }
     }
 
+    // ── 가족의 도전: 폰에만 두는 기록 (서버로 보내는 것은 withHelp 참/거짓뿐) ──
+
+    /** [해 볼게요] 를 누르고 아직 해내지 않은 도전들 */
+    var challengesInProgress: Set<String>
+        get() = prefs.getStringSet(KEY_CHALLENGE_DOING, emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet(KEY_CHALLENGE_DOING, value).apply()
+
+    /** 하는 중에 해봄 도우미 안내를 한 번이라도 받은 도전들 (해냈어요 때 withHelp) */
+    var challengesHelped: Set<String>
+        get() = prefs.getStringSet(KEY_CHALLENGE_HELPED, emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet(KEY_CHALLENGE_HELPED, value).apply()
+
+    /** 이미 본 칭찬 ([Challenges.cheerKey]) */
+    var cheersSeen: Set<String>
+        get() = prefs.getStringSet(KEY_CHEERS_SEEN, emptySet()).orEmpty()
+        set(value) = prefs.edit().putStringSet(KEY_CHEERS_SEEN, value).apply()
+
+    /** 도우미 안내가 시작될 때: 하는 중인 도전은 모두 "도움 받음" */
+    fun markChallengeHelp() {
+        val doing = challengesInProgress
+        if (doing.isNotEmpty()) challengesHelped = challengesHelped + doing
+    }
+
     companion object {
+        private const val KEY_CHALLENGE_DOING = "challenge_doing"
+        private const val KEY_CHALLENGE_HELPED = "challenge_helped"
+        private const val KEY_CHEERS_SEEN = "cheers_seen"
         private const val KEY_SOS = "sos_enabled"
         private const val KEY_SENSITIVE = "sensitive_alerts"
         private const val KEY_PHONE = "phone_"
