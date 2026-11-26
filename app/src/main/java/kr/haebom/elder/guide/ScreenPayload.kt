@@ -35,8 +35,6 @@ internal object ScreenPayload {
     const val MAX_NODES = 60
     const val MAX_TEXT = 100
     const val MAX_HISTORY = 10
-    /** 채워졌는데 글자를 읽을 수 없는 입력 칸에 보내는 말 */
-    const val FILLED = "(입력되어 있음)"
     private val MOVING_CLASSES = setOf("SeekBar", "ProgressBar")
     private const val MAX_PACKAGE = 200
 
@@ -116,13 +114,13 @@ internal object ScreenPayload {
         val fields = mutableListOf("\"i\":$index")
         // 입력 칸에 적힌 글자는 보내지 않습니다 (어르신이 입력한 내용)
         if (node.secret) {
-            // 비밀 칸: 글자·이름표·값 없이 자리만. 채워졌으면 "(입력되어 있음)" 표시만 (내용 아님)
-            if (node.filled) fields += "\"t\":${quote(FILLED)}"
+            // 비밀 칸: 글자·이름표·값 없이 자리만. 채워졌는지는 아래 "filled":true 로만 (내용 아님, guide@v4.6)
         } else if (node.editable) {
             // 입력 칸: 채워져 있으면 그 값을 보냄 (AI 가 입력을 마쳤는지·맞는지 보고 다음 단계로 넘어가게).
             // 비어 있으면 칸 이름(힌트)만. 비밀번호 칸과 민감한 이름표가 붙은 칸은 화면째 보내지 않음
             // (ScreenCapture·SensitiveText). 전화·계좌·카드·주민번호 숫자는 서버가 *** 로 가림
-            if (node.filled) (node.text.clip() ?: FILLED).let { fields += "\"t\":${quote(it)}" }
+            // 값을 읽을 수 없거나 비밀 칸이 있는 화면이면 값 없이 "filled":true 만
+            if (node.filled) node.text.clip()?.let { fields += "\"t\":${quote(it)}" }
             (node.description.clip() ?: node.hint.clip())?.let { fields += "\"d\":${quote(it)}" }
         } else {
             node.text.clip()?.let { fields += "\"t\":${quote(it)}" }
@@ -136,6 +134,8 @@ internal object ScreenPayload {
         if (node.checked) fields += "\"checked\":true"
         if (node.selected) fields += "\"selected\":true"
         if (node.secret) fields += "\"secret\":true"
+        // (guide@v4.6) 무언가 적혀 있음. 서버는 채워진 칸을 넘기고 빈 칸부터 안내 (모두 채워지면 로그인 단추로)
+        if (node.editable && node.filled) fields += "\"filled\":true"
         // guide@v4.4: 서버가 disabled(회색이라 아직 못 누름)·focused 상태로 모델에 전달
         if (!node.enabled) fields += "\"enabled\":false"
         if (node.focused) fields += "\"focused\":true"

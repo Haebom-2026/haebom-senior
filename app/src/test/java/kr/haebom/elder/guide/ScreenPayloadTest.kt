@@ -59,8 +59,9 @@ class ScreenPayloadTest {
             ScreenNode(text = "서울시 중구 세종대로 110", className = "EditText", editable = true, filled = true, hint = "주소"),
             ScreenNode(text = "연락처 입력", className = "EditText", editable = true, filled = false, hint = "연락처 입력"),
         )))
-        // 채워진 칸은 값을 보내 AI 가 입력을 마쳤는지 알 수 있게
+        // 채워진 칸은 값과 filled 를 보내 AI 가 입력을 마쳤는지 알 수 있게
         assertTrue(json.contains("\"t\":\"서울시 중구 세종대로 110\""))
+        assertTrue(json.contains("\"editable\":true,\"filled\":true"))
         assertTrue(json.contains("\"d\":\"주소\""))
         // 빈 칸은 힌트만
         assertTrue(json.contains("\"d\":\"연락처 입력\""))
@@ -111,12 +112,13 @@ class ScreenPayloadTest {
 
     @Test
     fun secretFieldIsSentWithoutTextOrLabel() {
-        // 서버와 합의한 모양: {"editable":true,"secret":true} + 자리. 채워졌으면 "(입력되어 있음)" 표시만
+        // 서버와 합의한 모양: {"editable":true,"secret":true} + 자리. 채워졌으면 "filled":true 만 (guide@v4.6)
         val empty = ScreenNode(hint = "비밀번호", description = "비밀번호 입력", className = "EditText",
             bounds = intArrayOf(60, 800, 1020, 940), clickable = true, editable = true, secret = true)
         val json = ScreenPayload.screenObject("kr.go.minwon.m", 1080, 2640, listOf(empty, empty.copy(filled = true)))!!
         assertTrue(json.contains("{\"i\":0,\"c\":\"EditText\",\"b\":[60,800,1020,940],\"clickable\":true,\"editable\":true,\"secret\":true}"))
-        assertTrue(json.contains("{\"i\":1,\"t\":\"(입력되어 있음)\",\"c\":\"EditText\""))
+        assertTrue(json.contains("{\"i\":1,\"c\":\"EditText\",\"b\":[60,800,1020,940],\"clickable\":true,\"editable\":true,\"secret\":true,\"filled\":true}"))
+        assertFalse(json.contains("입력되어 있음"))
         assertFalse(json.contains("비밀번호"))
     }
 
