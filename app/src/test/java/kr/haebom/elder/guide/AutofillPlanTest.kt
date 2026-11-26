@@ -35,4 +35,13 @@ class AutofillPlanTest {
         assertEquals(R.string.guide_youtube_tap_autofill, step.caption)
         assertEquals(listOf("임영웅"), step.chips)
     }
+
+    @Test
+    fun neverOffersTextForASecretField() {
+        // 비밀번호·인증번호 칸: AI 가 넣을 글자를 줘도, 말한 값이 있어도 단추를 만들지 않음
+        val secret = field.copy(secret = true)
+        val aiOnly = GuideSession.Active(null, null, goal = "UNKNOWN", slots = mapOf("query" to "1234"))
+        val suggest = AiReply(1, "suggest", "", target = 0, typeText = "1234", chips = listOf("1234"))
+        assertTrue(AutofillPlan.chips(suggest, secret, aiOnly).isEmpty())
+    }
 }

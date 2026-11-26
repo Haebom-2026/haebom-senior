@@ -11,6 +11,8 @@ internal object AutofillPlan {
      */
     fun chips(reply: AiReply, target: ScreenNode?, active: GuideSession.Active?): List<String> {
         if (target?.editable != true) return emptyList()
+        // 비밀 칸(비밀번호·인증번호·계좌번호 등)에는 해봄이 글자를 넣지 않음: AI 가 넣을 글자를 줘도 버림
+        if (target.secret) return emptyList()
         val spoken = (active?.query ?: active?.slots?.get("query"))
             ?.takeIf { active?.queryFilled == false }
         // AI 가 준 넣을 글자(typeText, 없으면 chips)는 그대로: 이름·번호·"화면 자동 꺼짐" 같은 값을 자르지 않음

@@ -25,7 +25,8 @@ internal data class ScreenNode(
     val focused: Boolean = false,
     /**
      * 비밀번호·인증번호·계좌번호처럼 어르신만 넣는 칸. 글자는 담지 않고 자리와 [filled] 만 앎.
-     * 이런 칸이 있는 화면은 서버로 보내지 않음([CapturedScreen.blocked]). 앱 안 안내([AuthGuide])에만 씀
+     * 화면 안내 AI 에는 `{"editable":true,"secret":true}` 와 자리만 보냄 (글자·이름표·값 없음, 서버와 합의 2026-11-27).
+     * 디버그 뷰어에는 이런 화면을 보내지 않음([CapturedScreen.blocked])
      */
     val secret: Boolean = false,
 )
@@ -115,7 +116,8 @@ internal object ScreenPayload {
         val fields = mutableListOf("\"i\":$index")
         // 입력 칸에 적힌 글자는 보내지 않습니다 (어르신이 입력한 내용)
         if (node.secret) {
-            // 비밀 칸: 글자·이름표 없이 자리만 (원래 이런 화면은 보내지 않음. 혹시 와도 내용은 없음)
+            // 비밀 칸: 글자·이름표·값 없이 자리만. 채워졌으면 "(입력되어 있음)" 표시만 (내용 아님)
+            if (node.filled) fields += "\"t\":${quote(FILLED)}"
         } else if (node.editable) {
             // 입력 칸: 채워져 있으면 그 값을 보냄 (AI 가 입력을 마쳤는지·맞는지 보고 다음 단계로 넘어가게).
             // 비어 있으면 칸 이름(힌트)만. 비밀번호 칸과 민감한 이름표가 붙은 칸은 화면째 보내지 않음
@@ -133,6 +135,7 @@ internal object ScreenPayload {
         if (node.scrollable) fields += "\"scrollable\":true"
         if (node.checked) fields += "\"checked\":true"
         if (node.selected) fields += "\"selected\":true"
+        if (node.secret) fields += "\"secret\":true"
         // guide@v4.4: 서버가 disabled(회색이라 아직 못 누름)·focused 상태로 모델에 전달
         if (!node.enabled) fields += "\"enabled\":false"
         if (node.focused) fields += "\"focused\":true"

@@ -310,16 +310,20 @@ class GuideService : AccessibilityService() {
                 .map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
         }
 
-        // 비밀번호·인증 화면: 표시 없이 직접 하시도록 (AI 에도 보내지 않음)
+        // 비밀번호·인증 화면: 비밀 칸은 어르신이 직접. AI 에는 비밀 칸을 글자 없이 보내 안내를 받고,
+        // 서버가 그런 화면을 받지 않으면(아직 거부하는 서버) 앱 안 로그인 안내로
         val step = screen?.let {
             task?.findStep(it.controls, it.hasPasswordField, query, it.hasSearchField, active.queryFilled)
         }
         if (captured?.blocked == true || screen?.hasPasswordField == true ||
             step?.caption == R.string.guide_authentication_stop
         ) {
-            // 민감 정보는 직접: 서버로 보내지 않고, 앱 안에서 로그인·인증 순서만 짚어 드림 (안내는 끝내지 않음)
+            // 민감 정보는 직접 (안내는 끝내지 않음). AI 가 먼저, 안 되면 앱 안에서 로그인·인증 순서를 짚어 드림
             noTargetSince = 0L
             sensitivePaused = true
+            if (ai != null && captured != null && secretRefusedSerial != GuideSession.serial) {
+                aiDecision(active, captured, windowId, foreground)?.let { return it }
+            }
             captured?.let { authDecision(it, windowId, foreground) }?.let { return it }
             return Decision(null, getString(R.string.guide_authentication_stop) to GuideCaption.Tone.WARN)
         }
@@ -438,6 +442,12 @@ class GuideService : AccessibilityService() {
         }
         return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO, aiLastSwipe)
     }
+
+    /**
+     * 서버가 비밀 칸 있는 화면을 거부한 안내 ([GuideSession.serial]). 그 안내 동안은 그런 화면을 다시 보내지 않고
+     * 앱 안 로그인 안내만 씀 (secret 칸을 받는 서버가 배포되면 거부하지 않으므로 저절로 AI 로 감)
+     */
+    private var secretRefusedSerial = -1L
 
     /** 마지막으로 본 화면 지문과 처음 본 시각 (화면이 멈췄는지 판단) */
     private var aiSeenFingerprint: String? = null
@@ -574,6 +584,7 @@ class GuideService : AccessibilityService() {
         val genericAskInKnownTask = knownTask && reply?.isGenericAsk == true
         aiAsked = reply?.type == AiReply.ASK && !genericAskInKnownTask
         aiAskSay = reply?.say?.takeIf { aiAsked && it.isNotBlank() }
+        if (reply?.isSecretRefusal == true) secretRefusedSerial = GuideSession.serial
         if (reply == null || reply.isFallback || genericAskInKnownTask) {
             aiFailedFingerprint = fingerprint
             aiFailedSay = reply?.say?.takeUnless { reply.type == AiReply.ASK }

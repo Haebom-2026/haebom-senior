@@ -5,8 +5,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 /**
  * 화면을 서버로 보낼 노드 목록으로 읽음 (화면 안내 AI #16, 디버그 뷰어 공통).
- * - 비밀번호·인증 입력 칸이 있으면 [blocked] = true (서버로 보내지 않음). 노드는 앱 안 로그인 안내([AuthGuide])용으로
- *   남기되, 그 칸은 [ScreenNode.secret] 으로 자리·채워짐만 담고 글자는 담지 않음
+ * - 비밀번호·인증 입력 칸은 [ScreenNode.secret] 으로 자리·채워짐만 담고 글자는 담지 않음. 그런 화면은 [blocked] = true:
+ *   디버그 뷰어로는 보내지 않고, 화면 안내 AI 에는 비밀 칸을 글자 없이 보냄 (다른 입력 칸의 값도 지움)
  * - 입력 칸에 적힌 글자는 [ScreenPayload] 가 보내지 않음
  * - 글자·설명이 있거나 누를 수 있는 요소만, 최대 [ScreenPayload.MAX_NODES] 개
  * - 보이지 않는 묶음 안의 보이는 요소도 읽음 (웹 화면의 아래 고정 단추)

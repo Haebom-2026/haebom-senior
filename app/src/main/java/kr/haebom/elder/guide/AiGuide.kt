@@ -42,6 +42,9 @@ internal data class AiReply(
      */
     val isGenericAsk: Boolean get() = type == ASK && GENERIC_ASK.any { say.replace(" ", "").contains(it) }
 
+    /** 서버가 민감한 입력 칸이 있다며 화면을 받지 않음 (secret 칸을 아직 못 받는 서버) */
+    val isSecretRefusal: Boolean get() = type == SAY && say.startsWith(SECRET_REFUSAL)
+
     /** 서버가 모델을 못 써서 대신 보낸 문장 ("서버가 잠시 바빠요" 등): 로컬 안내를 유지하는 게 나음 */
     val isFallback: Boolean get() = type == SAY && FALLBACK_PREFIXES.any { say.startsWith(it) }
 
@@ -55,12 +58,13 @@ internal data class AiReply(
 
         /**
          * 서버가 모델 대신 보내는 문장들. "이 화면은 직접 입력해 주세요" 는 서버가 민감한 입력 칸을 봤을 때 보내는데,
-         * 앱은 그런 화면을 이미 서버에 보내지 않으므로(SensitiveText) 이 말이 오면 앱의 안내로 계속함
+         * 이 말이 오면 앱 안 로그인 안내([AuthGuide])로 계속함
          */
         private val GENERIC_ASK = listOf("무엇을도와", "어떤일을", "어떤서류", "어떤서비스", "무엇을하고", "어떤것을", "어떤영상", "무엇을찾")
 
+        private const val SECRET_REFUSAL = "이 화면은 직접 입력해 주세요"
         private val FALLBACK_PREFIXES = listOf(
-            "서버가 잠시 바빠요", "제가 화면을 잘 못 알아봤어요", "지금 화면을 읽지 못했어요", "이 화면은 직접 입력해 주세요",
+            "서버가 잠시 바빠요", "제가 화면을 잘 못 알아봤어요", "지금 화면을 읽지 못했어요", SECRET_REFUSAL,
         )
 
         fun parse(body: String): AiReply? = runCatching {

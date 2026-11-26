@@ -108,4 +108,21 @@ class ScreenPayloadTest {
         val other = base + ScreenNode(text = "방탄소년단", className = "TextView", clickable = true)
         assertFalse(ScreenPayload.fingerprint("yt", base) == ScreenPayload.fingerprint("yt", other))
     }
+
+    @Test
+    fun secretFieldIsSentWithoutTextOrLabel() {
+        // 서버와 합의한 모양: {"editable":true,"secret":true} + 자리. 채워졌으면 "(입력되어 있음)" 표시만
+        val empty = ScreenNode(hint = "비밀번호", description = "비밀번호 입력", className = "EditText",
+            bounds = intArrayOf(60, 800, 1020, 940), clickable = true, editable = true, secret = true)
+        val json = ScreenPayload.screenObject("kr.go.minwon.m", 1080, 2640, listOf(empty, empty.copy(filled = true)))!!
+        assertTrue(json.contains("{\"i\":0,\"c\":\"EditText\",\"b\":[60,800,1020,940],\"clickable\":true,\"editable\":true,\"secret\":true}"))
+        assertTrue(json.contains("{\"i\":1,\"t\":\"(입력되어 있음)\",\"c\":\"EditText\""))
+        assertFalse(json.contains("비밀번호"))
+    }
+
+    @Test
+    fun secretRefusalIsRecognised() {
+        assertTrue(AiReply(1, "say", "이 화면은 직접 입력해 주세요. 제가 대신 보지 않을게요.").isSecretRefusal)
+        assertFalse(AiReply(1, "say", "서버가 잠시 바빠요. 조금 뒤에 다시 말씀해 주세요.").isSecretRefusal)
+    }
 }
