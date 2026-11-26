@@ -22,6 +22,9 @@ internal class DirectionArrowView(
     context: Context,
     private val hint: DirectionHint,
     private val label: String,
+    /** (서버 v4 swipe target) 밀어야 할 영역의 가운데 (화면 좌표). 없으면 화면 가운데 */
+    private val anchorX: Int? = null,
+    private val anchorY: Int? = null,
 ) : View(context) {
     private val density = resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(230, 100, 0) }
@@ -70,7 +73,10 @@ internal class DirectionArrowView(
         getLocationOnScreen(screenPosition)
         val w = width.toFloat()
         val h = height.toFloat()
-        val size = min(w, h) * 0.32f
+        // 밀 영역이 있으면 그 자리에 조금 작게, 없으면 화면 가운데에 크게
+        val cx = anchorX?.let { (it - screenPosition[0]).toFloat().coerceIn(w * 0.2f, w * 0.8f) } ?: (w / 2)
+        val cy = anchorY?.let { (it - screenPosition[1]).toFloat().coerceIn(h * 0.15f, h * 0.85f) } ?: (h / 2)
+        val size = min(w, h) * (if (anchorX != null) 0.24f else 0.32f)
         // 0→1 동안 미는 방향으로 이동하며 나타났다 사라짐
         val travel = size * 0.6f
         val shift = (phase - 0.5f) * travel
@@ -79,10 +85,10 @@ internal class DirectionArrowView(
         outline.alpha = fill.alpha
 
         when (hint) {
-            DirectionHint.UP -> drawArrow(canvas, w / 2, h / 2 - shift, size, angle = 0f)
-            DirectionHint.DOWN -> drawArrow(canvas, w / 2, h / 2 + shift, size, angle = 180f)
-            DirectionHint.LEFT -> drawArrow(canvas, w / 2 - shift, h / 2, size, angle = 270f)
-            DirectionHint.RIGHT -> drawArrow(canvas, w / 2 + shift, h / 2, size, angle = 90f)
+            DirectionHint.UP -> drawArrow(canvas, cx, cy - shift, size, angle = 0f)
+            DirectionHint.DOWN -> drawArrow(canvas, cx, cy + shift, size, angle = 180f)
+            DirectionHint.LEFT -> drawArrow(canvas, cx - shift, cy, size, angle = 270f)
+            DirectionHint.RIGHT -> drawArrow(canvas, cx + shift, cy, size, angle = 90f)
             DirectionHint.HOME, DirectionHint.BACK -> {
                 // 화면 아래 내비게이션 쪽을 가리킴
                 val small = size * 0.6f
@@ -92,7 +98,7 @@ internal class DirectionArrowView(
                 return
             }
         }
-        drawTag(canvas, w / 2, h / 2 + size * 0.95f)
+        drawTag(canvas, cx, (cy + size * 0.95f).coerceAtMost(h - 60 * density))
     }
 
     /** 위쪽을 향한 화살표를 [angle]도 돌려 (cx, cy) 가운데에 그림 */

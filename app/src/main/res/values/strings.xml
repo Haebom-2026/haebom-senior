@@ -240,6 +240,9 @@
     <string name="choice_map">🗺 지도에서 내 주변 찾기</string>
     <string name="caption_web_search">‘%1$s’ 검색 결과를 열었어요. 보고 싶은 것을 눌러 보세요.</string>
     <string name="caption_map_search">‘%1$s’을(를) 지도에서 찾았어요. 가까운 곳부터 보여요.</string>
+    <string name="ask_title">💬 여쭤볼게요</string>
+    <string name="ask_unknown">모르겠어요</string>
+    <string name="history_elder_answer">어르신 답: %1$s</string>
     <string name="confirm_not_heard">대답을 못 들었어요. 카드의 ‘예’나 ‘아니요’를 눌러 주세요.</string>
     <string name="confirm_declined">알겠어요. 다시 말하려면 말하기 단추를 눌러 주세요.</string>
     <string name="confirm_ai_guide">화면을 보면서 하나씩 안내해 드릴까요?</string>

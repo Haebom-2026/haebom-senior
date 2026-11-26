@@ -18,6 +18,8 @@ internal object GuideSession {
         val utterance: String = "",
         val goal: String = task?.aiGoal ?: GuideTask.GOAL_UNKNOWN,
         val slots: Map<String, String> = task?.defaultSlots(query).orEmpty(),
+        /** (서버 v4) 바로 앞 AI 질문에 고른 답. 다음 요청에 한 번 보내고 비움 */
+        val userReply: String = "",
     )
 
     var active: Active? = null
@@ -51,15 +53,23 @@ internal object GuideSession {
         val reply = text.trim().takeIf { it.isNotEmpty() } ?: return
         // 대답이 "임영웅 검색해 줘" 처럼 문장이어도 검색어("임영웅")만
         val query = current.query ?: (GuideTask.searchWords(reply) ?: reply).takeIf { current.task == GuideTask.YOUTUBE }
-        serial++
+        // 같은 안내를 이어 가므로 serial 은 그대로 (안내 기록을 지우지 않음). 지난 질문은 부르는 쪽이 지움
         active = current.copy(
             utterance = (current.utterance + " / " + reply).take(200),
             query = query,
             queryFilled = current.queryFilled && query == current.query,
-            slots = current.slots + (if (query != null && current.task == GuideTask.YOUTUBE) mapOf("query" to query) else emptyMap()) +
-                mapOf("answer" to reply.take(100)),
+            slots = current.slots + (if (query != null && current.task == GuideTask.YOUTUBE) mapOf("query" to query) else emptyMap()),
+            userReply = reply.take(100),
         )
         onChange?.invoke()
+    }
+
+    /** 보낸 대답을 비움 (다음 요청부터는 보내지 않음, 화면 표시는 그대로) */
+    fun consumeUserReply(): String {
+        val current = active ?: return ""
+        if (current.userReply.isEmpty()) return ""
+        active = current.copy(userReply = "")
+        return current.userReply
     }
 
     /** 검색어를 넣었다고 표시 (화면 표시는 그대로 두므로 [onChange] 를 부르지 않음) */

@@ -182,9 +182,10 @@ class GuideService : AccessibilityService() {
         }
         // 짚을 단추가 있으면 빨간 테두리만, 없을 때 이동 방향 화살표
         val arrow = decision.arrow.takeIf { decision.target == null && level.arrows }
-        if (arrow != shownArrow) {
+        val arrowAt = decision.arrowAt.takeIf { arrow != null }
+        if (arrow != shownArrow || arrowAt != shownArrowAt) {
             clearArrow()
-            arrow?.let(::showArrow)
+            arrow?.let { showArrow(it, arrowAt) }
         }
         // 자동완성 입력 단추: 입력 칸을 짚었을 때만, 그 바로 아래
         val anchor = shownTarget?.bounds
@@ -271,6 +272,8 @@ class GuideService : AccessibilityService() {
         val message: Pair<String, GuideCaption.Tone>?,
         val arrow: DirectionHint? = null,
         val chips: List<String> = emptyList(),
+        /** (서버 v4 swipe target) 화살표를 그릴 영역 */
+        val arrowAt: Rect? = null,
     )
 
     private fun decide(foreground: String?): Decision {
@@ -467,15 +470,11 @@ class GuideService : AccessibilityService() {
         Proficiency.EXPERT -> R.string.level_expert_help
     }
 
-    /** (v4) 서버가 "여기서 멈춤"(송금 확정·가짜 사이트·3번 실패): 안내를 마치고 직접 확인하시게 */
-    private fun stopForSafety(say: String): Decision {
-        if (!aiDoneScheduled) {
-            aiDoneScheduled = true
-            val serial = GuideSession.serial
-            handler.postDelayed({ if (GuideSession.serial == serial) GuideSession.stop() }, AI_DONE_LINGER_MS)
-        }
-        return Decision(null, say to GuideCaption.Tone.WARN)
-    }
+    /**
+     * (v4) 서버가 "여기서 멈춤"(송금 확정·본인인증·가짜 사이트·3번 실패): 이 화면에서는 짚지 않고 주의 문장만.
+     * 안내는 끝내지 않음 — 어르신이 직접 하고 화면이 바뀌면 이어서 안내 (같은 화면이면 서버를 다시 부르지 않음)
+     */
+    private fun stopForSafety(say: String): Decision = Decision(null, say to GuideCaption.Tone.WARN)
 
     /** 지금 단계에서 안내를 여러 번 끝까지 마쳤으면 "안내를 줄여 볼까요?" 한 번 물어봄 */
     private fun maybeSuggestLessGuidance() {
@@ -548,7 +547,7 @@ class GuideService : AccessibilityService() {
         )
         val id = client.request(
             settings.proficiency.aiMode,
-            active.goal, active.utterance, active.slots + (SAFETY_SLOT to SAFETY_NOTE) + (FORM_SLOT to FORM_NOTE) + state, screenJson, aiHistory.toList(), settings.deviceId,
+            active.goal, active.utterance, active.slots + (SAFETY_SLOT to SAFETY_NOTE) + (FORM_SLOT to FORM_NOTE) + state, screenJson, aiHistory.toList(), settings.deviceId, GuideSession.consumeUserReply(),
         ) { requestId, outcome -> onAiOutcome(requestId, fingerprint, outcome) }
         aiPending = AiPending(id, fingerprint)
     }
@@ -595,7 +594,9 @@ class GuideService : AccessibilityService() {
             aiSeekFoundOn = null
             aiLastSwipe = DirectionHint.fromSwipe(reply.dir)
             seekDecision(captured, windowId, foreground)?.let { return it }
-            return Decision(null, say to GuideCaption.Tone.GUIDE, aiLastSwipe)
+            // (v4) 밀 영역이 있으면 화살표를 그 자리에
+            val area = AiReply.findTarget(reply, captured.nodes)?.bounds?.let { Rect(it[0], it[1], it[2], it[3]) }
+            return Decision(null, say to GuideCaption.Tone.GUIDE, aiLastSwipe, arrowAt = area)
         }
         aiSeek = null
         aiSeekFoundOn = null
@@ -624,9 +625,46 @@ class GuideService : AccessibilityService() {
                     Decision(target, say to GuideCaption.Tone.GUIDE, chips = chips)
                 }
             }
+            AiReply.ASK -> {
+                // (v4) 답 단추 + "모르겠어요". 말로 대답해도 됨
+                if (reply.options.isNotEmpty()) showAskOptions(reply)
+                Decision(null, say to GuideCaption.Tone.GUIDE)
+            }
             // 말 안내: "홈으로 가세요" → 홈 화살표, "뒤로 가세요" → 뒤로 화살표
             else -> Decision(null, say to GuideCaption.Tone.GUIDE, DirectionHint.from(reply))
         }
+    }
+
+    /** 지금 보여 주는 AI 질문의 답 단추들 (말로 대답할 때 맞춰 봄) */
+    private var askOptions: List<String> = emptyList()
+
+    private fun showAskOptions(reply: AiReply) {
+        askOptions = reply.options + getString(R.string.ask_unknown)
+        card.show(
+            key = "ask:${reply.requestId}",
+            title = getString(R.string.ask_title),
+            message = reply.say,
+            actions = askOptions.mapIndexed { index, option ->
+                OverlayCard.Action(option, if (index == 0) ElderUi.Kind.PRIMARY else ElderUi.Kind.SECONDARY) {
+                    stopListening(announce = false)
+                    answerAsk(option)
+                }
+            },
+        )
+    }
+
+    /** AI 질문에 대답: 같은 안내를 이어 가고, 다음 요청에 userReply·history 로 보냄 */
+    private fun answerAsk(reply: String) {
+        askOptions = emptyList()
+        card.hide()
+        // 지난 질문(같은 화면의 ask 답)을 지워 대답을 담아 다시 묻게 함
+        aiAnswer = null
+        aiAsked = false
+        aiAskSay = null
+        GuideCaption.post(getString(R.string.caption_answer_taken, reply), GuideCaption.Tone.INFO)
+        GuideSession.answer(reply)
+        aiHistory.addLast(getString(R.string.history_elder_answer, reply))
+        while (aiHistory.size > ScreenPayload.MAX_HISTORY) aiHistory.removeFirst()
     }
 
     private data class ScreenRead(val local: GuideScreen?, val captured: CapturedScreen?, val windowId: Int)
@@ -749,7 +787,9 @@ class GuideService : AccessibilityService() {
     private var arrowView: View? = null
     private var shownArrow: DirectionHint? = null
 
-    private fun showArrow(hint: DirectionHint) {
+    private var shownArrowAt: Rect? = null
+
+    private fun showArrow(hint: DirectionHint, at: Rect? = null) {
         val label = getString(
             when (hint) {
                 DirectionHint.UP -> R.string.arrow_up
@@ -760,7 +800,7 @@ class GuideService : AccessibilityService() {
                 DirectionHint.BACK -> R.string.arrow_back
             },
         )
-        val view = DirectionArrowView(this, hint, label)
+        val view = DirectionArrowView(this, hint, label, at?.centerX(), at?.centerY())
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -778,6 +818,7 @@ class GuideService : AccessibilityService() {
         }
         arrowView = view
         shownArrow = hint
+        shownArrowAt = at
         captionHost?.let { reattachCaption() }
         floatingControls.bringToFront()
         card.bringToFront()
@@ -787,6 +828,7 @@ class GuideService : AccessibilityService() {
         val view = arrowView ?: return
         arrowView = null
         shownArrow = null
+        shownArrowAt = null
         getSystemService(WindowManager::class.java).removeViewImmediate(view)
     }
 
@@ -1085,8 +1127,9 @@ class GuideService : AccessibilityService() {
         val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
         // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
         if (GuideSession.active != null && aiAsked && (route == CommandRoute.Ai || route == CommandRoute.Unrecognized)) {
-            GuideCaption.post(getString(R.string.caption_answer_taken, spoken), GuideCaption.Tone.INFO)
-            GuideSession.answer(spoken)
+            // 답 단추가 있으면 말한 것과 맞는 단추로 ("네" → "네", "몰라" → "모르겠어요")
+            val picked = AskAnswer.match(spoken, askOptions, getString(R.string.ask_unknown))
+            answerAsk(picked ?: spoken)
             return
         }
         when (route) {

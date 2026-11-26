@@ -112,7 +112,10 @@ class GuideTaskTest {
         assertEquals("임영웅", GuideSession.active!!.slots["query"])
         assertFalse(GuideSession.active!!.queryFilled)
         assertTrue(GuideSession.active!!.utterance.endsWith("/ 임영웅"))
-        assertTrue(GuideSession.serial > serial)
+        // 같은 안내를 이어 감 (serial 그대로), 대답은 다음 요청에 한 번만
+        assertEquals(serial, GuideSession.serial)
+        assertEquals("임영웅", GuideSession.consumeUserReply())
+        assertEquals("", GuideSession.consumeUserReply())
         GuideSession.stop()
     }
 

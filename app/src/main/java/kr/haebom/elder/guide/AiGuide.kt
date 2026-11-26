@@ -125,10 +125,11 @@ internal class AiGuideClient(private val api: HaebomApi) {
         screen: String,
         history: List<String>,
         deviceId: String?,
+        userReply: String,
         done: (requestId: Int, outcome: AiOutcome) -> Unit,
     ): Int {
         val id = ++lastRequestId
-        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId, mode)
+        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId, mode, userReply)
         io.execute {
             val started = SystemClock.uptimeMillis()
             val reply = api.call("POST", "/v1/elder/guide", body)
