@@ -42,5 +42,53 @@
             android:minHeight="56dp"
             android:text="@string/open_practice"
             android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/voice_command"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/voice_command"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/guide_contacts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/command_contacts"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/guide_youtube"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/command_youtube"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/guide_gov24"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/command_gov24"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/stop_guide"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/stop_guide"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/sos"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/sos"
+            android:textSize="18sp" />
     </LinearLayout>
 </ScrollView>
