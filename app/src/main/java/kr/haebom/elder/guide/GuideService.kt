@@ -28,6 +28,7 @@ import kr.haebom.elder.family.ApprovalWait
 import kr.haebom.elder.family.Approvals
 import kr.haebom.elder.family.Assessment
 import kr.haebom.elder.family.ElderSettings
+import kr.haebom.elder.family.Level
 import kr.haebom.elder.family.Family
 import kr.haebom.elder.family.SensitiveAlerter
 import kr.haebom.elder.family.SensitiveApps
@@ -1222,6 +1223,8 @@ class GuideService : AccessibilityService() {
             }
         }
         val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
+        // 새로 말함: 기다리던 서버 판단은 버림
+        classifyPending = null
         // 가족의 대답을 기다리는 중 새로 말함: 기다리기를 그만두고 그 일을 (#10)
         if (approvalWait != null && route != CommandRoute.Empty) cancelApproval(announce = false)
         // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
@@ -1231,6 +1234,16 @@ class GuideService : AccessibilityService() {
             answerAsk(picked ?: spoken)
             return
         }
+        // 무엇을 할지·어느 앱으로 할지 서버(LLM)가 판단하는 말 (같은 말은 폰 캐시)
+        if (classifier != null && route.asksServer()) {
+            askServer(spoken, route, foreground)
+            return
+        }
+        runLocal(route, spoken, foreground)
+    }
+
+    /** 폰 규칙으로 처리 (서버가 없거나, 4초 안에 판단을 못 받았거나, 서버 후보가 없을 때도) */
+    private fun runLocal(route: CommandRoute, spoken: String, foreground: String?) {
         when (route) {
             CommandRoute.Empty -> GuideCaption.post(getString(R.string.caption_no_speech), GuideCaption.Tone.WARN)
             CommandRoute.Stop -> stopEverything()
@@ -1286,6 +1299,7 @@ class GuideService : AccessibilityService() {
     /** 안내·떠 있는 카드·묻던 것·듣기를 모두 멈춤 ('그만' 단추, 말로 "그만") */
     private fun stopEverything() {
         cancelApproval(announce = false)
+        classifyPending = null
         pendingPick = null
         pendingConfirm = null
         pendingChoices = null
@@ -1489,6 +1503,158 @@ class GuideService : AccessibilityService() {
         if (announce) {
             GuideSession.stop()
             GuideCaption.post(getString(R.string.approval_cancelled), GuideCaption.Tone.INFO)
+        }
+    }
+
+    // ───────────────────────── 서버 판단 (#17 classify) ─────────────────────────
+    // 무엇을 하려는지·어느 앱으로 할지는 서버 LLM·jev 가 판단 ("동대구역까지 택시 타고 가고 싶어" → 택시 → 카카오 T).
+    // 같은 말은 폰 캐시([ClassifyCache])로 다시 서버를 부르지 않음. 서버가 없거나 4초 넘으면 폰 규칙으로
+
+    private val classifier: ClassifyClient? by lazy { HaebomServer.api?.let { ClassifyClient(this, it) } }
+    /** 기다리는 #17 의 명령 번호 (새로 말하거나 그만하면 앞의 답은 버림) */
+    private var classifyPending: Long? = null
+
+    /** 서버가 판단할 말: 폰 규칙으로는 앱·장소를 짐작만 하던 것 (지도·앱 고르기·애매한 검색·AI) */
+    private fun CommandRoute.asksServer(): Boolean =
+        this is CommandRoute.MapSearch || this is CommandRoute.PickApp || this is CommandRoute.Guess || this == CommandRoute.Ai
+
+    private fun askServer(spoken: String, local: CommandRoute, foreground: String?) {
+        val client = classifier ?: return runLocal(local, spoken, foreground)
+        client.cached(spoken)?.let { cached ->
+            android.util.Log.d(TAG, "classify 캐시 사용 (서버 안 부름): ${cached.intent} role=${cached.route?.role}")
+            applyServer(cached, spoken, local, foreground, commandId = null)
+            return
+        }
+        val id = client.nextCommandId()
+        classifyPending = id
+        GuideCaption.heard(spoken)
+        GuideCaption.post(getString(R.string.caption_server_thinking), GuideCaption.Tone.INFO, speak = false)
+        client.classify(id, spoken, Sensitivity.fromCommand(spoken, foreground).level) { result ->
+            if (classifyPending != id) return@classify
+            classifyPending = null
+            if (result == null) runLocal(local, spoken, foreground) else applyServer(result, spoken, local, foreground, id)
+        }
+    }
+
+    /** #17 결과대로: 단계가 올라갔으면 경고, 하려는 일을 물어야 하면 묻고, 후보 앱이 있으면 그 앱으로. 아니면 폰 규칙 */
+    private fun applyServer(result: Classified, spoken: String, local: CommandRoute, foreground: String?, commandId: Long?) {
+        // 서버는 단계를 올리기만 함 (폰 규칙이 못 잡은 사기 의심·금융)
+        if (result.level == Level.L3 || result.category == Sensitivity.SCAM) {
+            warnScam(Assessment(Level.L3, Sensitivity.SCAM, result.reason.ifBlank { "서버 판단: 위험" }), foreground)
+            return
+        }
+        if (result.level == Level.L2 && result.category == Sensitivity.FINANCE) {
+            warnFinance(spoken, Assessment(Level.L2, Sensitivity.FINANCE, result.reason.ifBlank { "서버 판단: 금융" }), foreground)
+            return
+        }
+        result.clarify?.let { clarify ->
+            askIntent(clarify, spoken, local, foreground, commandId)
+            return
+        }
+        val route = result.route
+        if (route == null || route.candidates.isEmpty()) {
+            android.util.Log.d(TAG, "서버 후보 없음 → 폰 규칙")
+            runLocal(local, spoken, foreground)
+            return
+        }
+        openServerRoute(route, spoken, local, foreground, commandId)
+    }
+
+    /** 하려는 일이 갈림: 어르신께 묻고 답을 서버에 보내 다시 받은 후보로 */
+    private fun askIntent(clarify: ServerRoute.Clarify, spoken: String, local: CommandRoute, foreground: String?, commandId: Long?) {
+        showPick(
+            key = "pick:intent:${clarify.questionId}",
+            question = clarify.say.ifBlank { getString(R.string.pick_intent) },
+            options = clarify.options.map { it.name },
+        ) { picked ->
+            val option = clarify.options.firstOrNull { it.name == picked } ?: return@showPick
+            val client = classifier
+            if (commandId == null || client == null) {
+                runLocal(local, "$spoken ($picked)", foreground)
+                return@showPick
+            }
+            client.chooseApp(commandId, null, askedUser = true, answer = clarify.questionId to option.id) { route ->
+                if (route == null || route.candidates.isEmpty()) {
+                    runLocal(local, spoken, foreground)
+                } else {
+                    openServerRoute(route, "$spoken ($picked)", local, foreground, commandId)
+                }
+            }
+        }
+    }
+
+    /** 후보 중 폰에 깔린 앱: 하나면 바로, 여럿이면 어르신이 고름, 없으면 (그 앱이어야 하면) 없다고 말하고 아니면 폰 규칙 */
+    private fun openServerRoute(route: ServerRoute.Route, spoken: String, local: CommandRoute, foreground: String?, commandId: Long?) {
+        val installed = ServerRoute.installedCandidates(route) { pkg -> packageManager.getLaunchIntentForPackage(pkg) != null }
+        android.util.Log.d(TAG, "서버 후보 ${route.role}: ${route.candidates.size}개 중 깔린 앱 ${installed.size}개")
+        when {
+            installed.isEmpty() && route.exclusive ->
+                GuideCaption.post(getString(R.string.server_app_missing, route.candidates.first().name), GuideCaption.Tone.WARN)
+            installed.isEmpty() -> runLocal(local, spoken, foreground)
+            installed.size == 1 -> startServerApp(installed.single(), spoken, foreground, commandId, askedUser = false)
+            else -> showPick(
+                key = "pick:server:${route.role}",
+                question = getString(R.string.pick_app_server),
+                options = installed.map { it.first.name },
+            ) { picked ->
+                installed.firstOrNull { it.first.name == picked }?.let { startServerApp(it, spoken, foreground, commandId, askedUser = true) }
+            }
+        }
+    }
+
+    /** 고른 앱: 그 앱에서 할 일을 물어야 하면(등본/초본 등) 묻고, 서버에 고른 앱을 알린 뒤 앱을 열어 화면 안내 */
+    private fun startServerApp(
+        choice: Pair<ServerRoute.Candidate, String>,
+        spoken: String,
+        foreground: String?,
+        commandId: Long?,
+        askedUser: Boolean,
+    ) {
+        val (candidate, pkg) = choice
+        val client = classifier
+        val question = candidate.clarify
+        if (question != null) {
+            showPick(
+                key = "pick:goal:${candidate.appId}",
+                question = question.say,
+                options = question.options.map { it.name },
+            ) { picked ->
+                val option = question.options.firstOrNull { it.name == picked } ?: return@showPick
+                commandId?.let { client?.chooseApp(it, candidate.appId, askedUser, question.questionId to option.id) }
+                launchServerApp(candidate, pkg, "$spoken ($picked)", foreground)
+            }
+            return
+        }
+        commandId?.let { client?.chooseApp(it, candidate.appId, askedUser) }
+        launchServerApp(candidate, pkg, spoken, foreground)
+    }
+
+    private fun launchServerApp(candidate: ServerRoute.Candidate, pkg: String, utterance: String, foreground: String?) {
+        if (pkg == GuideTask.YOUTUBE.appPackage) {
+            GuideCaption.post(getString(GuideTask.YOUTUBE.nextStepText()), GuideCaption.Tone.INFO)
+            kr.haebom.elder.launchGuide(this, GuideTask.YOUTUBE, foreground, announce = false, GuideTask.youtubeQuery(utterance), utterance)
+            return
+        }
+        val launch = packageManager.getLaunchIntentForPackage(pkg)
+        if (launch == null) {
+            GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+            return
+        }
+        GuideSession.stop()
+        // 열기만 바란 말이면 그 앱이 뜨면 끝, 아니면 그 앱에서 말 그대로 이어서 안내 (목적지 입력 등은 화면 안내 AI 가 말에서 읽음)
+        val openOnly = GuideTask.openOnlyApp(utterance) != null
+        GuideSession.startAi(
+            utterance = (if (openOnly) "${candidate.name} 열어 줘" else "${candidate.name}에서 $utterance").take(200),
+            goal = GuideTask.GOAL_OPEN_APP,
+            slots = mapOf("app" to candidate.name) + (candidate.goalName?.let { mapOf("goal_name" to it) } ?: emptyMap()),
+        )
+        android.util.Log.d(TAG, "서버 후보 앱 열기: ${candidate.appId} ($pkg)")
+        GuideCaption.post(getString(R.string.pick_app_opened, candidate.name), GuideCaption.Tone.INFO)
+        try {
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: android.content.ActivityNotFoundException) {
+            GuideSession.stop()
+            GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
         }
     }
 

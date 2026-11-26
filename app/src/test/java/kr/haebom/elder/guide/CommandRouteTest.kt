@@ -85,6 +85,9 @@ class CommandRouteTest {
         assertEquals(CommandRoute.MapSearch("병원"), CommandRoute.of("병원 가고 싶어", null, aiAvailable = true))
         assertEquals(CommandRoute.MapSearch("약국"), CommandRoute.of("약국에 가려고 해", null, aiAvailable = true))
         assertEquals(CommandRoute.MapSearch("보건소"), CommandRoute.of("가까운 보건소 가려면", null, aiAvailable = true))
+        // 이동 수단을 말하면 지도 검색어로 쪼개지 않음 (2026-11-27 폰: "동대구역까지 택시 타고" 가 검색어가 됨)
+        assertEquals(CommandRoute.PickApp(AppChoice.Kind.TAXI, null), CommandRoute.of("동대구역까지 택시 타고 가고 싶어", null, aiAvailable = true))
+        assertEquals(null, Search.nearby("서울역까지 지하철로 가려면"))
         // 장소 이름 끝 글자는 자르지 않음 ("종로" 의 "로")
         assertEquals(CommandRoute.MapSearch("종로 우체국"), CommandRoute.of("종로 우체국 가고 싶어", null, aiAvailable = true))
         // 장소 이름 + 찾아 줘 → 지도 먼저, 지식 질문 → 인터넷 먼저

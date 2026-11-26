@@ -20,6 +20,8 @@ internal object Search {
     private val NEAR = listOf("주변", "근처", "가까운", "가까이", "근방", "동네", "여기서", "이근처")
     private val NEAR_WORDS = Regex("""(우리\s*)?(주변|근처|가까운|가까이|근방|동네|여기서|이\s*근처)\s*(에|에서|의)?""")
     private val WHERE_WORDS = Regex("""\s*(어디\s*(있어|야|예요|에요|있나요|있니|인지|있는지)?|가는\s*길|위치)\s*""")
+    /** 이동 수단을 말하면 장소 찾기가 아님 ("동대구역까지 택시 타고 가고 싶어": 서버가 판단, 택시 앱으로) */
+    private val TRANSPORT = listOf("택시", "버스", "지하철", "전철", "기차", "ktx", "srt", "자전거", "걸어", "차로", "운전", "비행기")
     /** 가고 싶다는 말 (띄어쓰기 없이): "병원 가고 싶어" 는 장소 찾기 */
     private val GO = listOf("가고싶", "가려고", "가려면", "갈래", "가야돼", "가야해", "가야되", "가는법", "가볼래", "가자")
     /** 검색어에서 빼는 가고 싶다는 말 ("병원에 가고 싶어" → "병원") */
@@ -53,6 +55,7 @@ internal object Search {
         val place = PLACE.any { it in normalized }
         val asksWhere = "어디" in normalized
         val wantsToGo = GO.any { it in normalized }
+        if (TRANSPORT.any { it in normalized }) return null
         if (!(near && (place || asksWhere || WATCH_VERBS.any { it in normalized } || "알려" in normalized)) &&
             !(place && (asksWhere || wantsToGo))
         ) {
