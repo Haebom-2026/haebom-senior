@@ -226,10 +226,14 @@ internal enum class GuideTask(val appPackage: String?) {
         }
 
         private val QUERY_APP_WORDS = Regex("""(?i)(유튜브|youtube)\s*(에서|에|으로|로)?""")
-        private val QUERY_VERB = Regex(
-            """(을|를)?\s*(검색|찾아|틀어|보여|재생|열어|켜)\s*(해)?\s*(줘|주세요|줄래|봐|줘요|드려)?\s*[.!?~]*\s*$""",
+        /**
+         * 요청하는 말이 시작되는 곳 ("검색", "찾아", "틀어", "보여 줘" …). 여기서부터 끝까지는 검색어가 아님.
+         * "임영웅 검색 좀 해 줘", "임영웅 노래 찾아봐", "트로트 틀어줘요" 처럼 끝말이 달라도 앞부분만 남김
+         */
+        private val REQUEST_START = Regex(
+            """\s*(을|를|좀|좀\s+)?\s*(검색|찾아|찾기|찾을|틀어|틀기|보여|재생|들려|알려|열어|켜|부탁)""",
         )
-        private val QUERY_FILLERS = setOf("좀", "한번", "검색", "안내", "영상", "동영상")
+        private val QUERY_FILLERS = setOf("좀", "한번", "한", "번", "검색", "안내", "영상", "동영상", "해", "해줘", "줘", "주세요")
 
         const val GOAL_UNKNOWN = "UNKNOWN"
         const val GOAL_OPEN_APP = "OPEN_APP"
@@ -261,12 +265,20 @@ internal enum class GuideTask(val appPackage: String?) {
          * 말한 명령에서 유튜브 검색어만 뽑습니다. 없으면 null.
          * "유튜브에 임영웅 검색해줘" → "임영웅", "유튜브에서 트로트 노래 틀어 줘" → "트로트 노래"
          */
-        fun youtubeQuery(command: String): String? {
-            var text = command.trim()
-            text = QUERY_APP_WORDS.replace(text, " ")
-            text = QUERY_VERB.replace(text, "")
-            val words = text.split(Regex("""\s+""")).filter { it.isNotBlank() && it !in QUERY_FILLERS }
-            val query = words.joinToString(" ").trim()
+        fun youtubeQuery(command: String): String? = searchWords(QUERY_APP_WORDS.replace(command, " "))
+
+        /**
+         * 말에서 검색어만: 요청하는 말("검색해 줘", "찾아봐" …) 앞부분, 끝의 을/를·꾸밈말 제외.
+         * 검색어가 없으면 null. 자동완성 단추·검색 주소에 넣는 모든 검색어가 이 규칙을 거침
+         */
+        fun searchWords(text: String): String? {
+            val trimmed = text.trim()
+            // 처음 나오는 요청하는 말 앞까지만 (맨 앞이면 "검색해 줘" 처럼 검색어 없음)
+            val head = trimmed.substring(0, REQUEST_START.find(trimmed)?.range?.first ?: trimmed.length)
+            val words = head.split(Regex("""\s+"""))
+                .map { it.trimEnd('?', '.', '!', '~') }
+                .filter { it.isNotBlank() && it !in QUERY_FILLERS }
+            val query = words.joinToString(" ").trim().removeSuffix("을").removeSuffix("를").trim()
             return query.takeIf { it.isNotEmpty() && it.length <= 40 }
         }
 

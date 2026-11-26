@@ -14,8 +14,9 @@ internal object AutofillPlan {
         val spoken = (active?.query ?: active?.slots?.get("query"))
             ?.takeIf { active?.queryFilled == false }
         val suggested = if (reply.type == AiReply.SUGGEST) reply.chips else emptyList()
+        // 단추에는 검색어만: AI 추천어나 대답이 문장("임영웅 검색 해줘")이어도 앞부분만 넣음
         return (listOfNotNull(spoken) + suggested)
-            .map(String::trim)
+            .map { GuideTask.searchWords(it) ?: it.trim() }
             .filter(String::isNotEmpty)
             .distinctBy { GuideTask.normalize(it) }
             .take(MAX_CHIPS)

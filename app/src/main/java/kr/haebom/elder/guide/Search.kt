@@ -15,9 +15,6 @@ internal object Search {
     data class Web(val query: String, val engine: Engine)
 
     private val WEB_APPS = Regex("""(?i)(인터넷|네이버|구글|google|naver|포털|검색창)\s*(에서|에|으로|로)?""")
-    private val SEARCH_VERB = Regex(
-        """(을|를|이|가)?\s*(좀\s*)?(검색|찾아|알려|보여|틀어|재생|들려)\s*(해)?\s*(줘|주세요|줄래|봐|줘요|드려|주라)?\s*[.!?~]*\s*$""",
-    )
     private val FILLERS = setOf("좀", "한번", "검색", "정보", "영상", "동영상")
 
     private val NEAR = listOf("주변", "근처", "가까운", "가까이", "근방", "동네", "여기서", "이근처")
@@ -89,12 +86,10 @@ internal object Search {
         "https://map.naver.com/p/search/${encode(query)}" to null,
     )
 
+    /** 검색어만 남김 (앱 이름·요청하는 말·꾸밈말 제외). 유튜브 검색어와 같은 규칙 */
     private fun clean(command: String, appWords: Regex?): String? {
-        var text = command.trim()
-        if (appWords != null) text = appWords.replace(text, " ")
-        text = SEARCH_VERB.replace(text, "")
-        val words = text.split(Regex("""\s+""")).filter { it.isNotBlank() && it !in FILLERS }
-        return words.joinToString(" ").trim().trimEnd('?', '.', '!').takeIf { it.isNotEmpty() && it.length <= 40 }
+        val text = if (appWords != null) appWords.replace(command, " ") else command
+        return GuideTask.searchWords(text)?.split(" ")?.filter { it !in FILLERS }?.joinToString(" ")?.takeIf { it.isNotBlank() }
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")

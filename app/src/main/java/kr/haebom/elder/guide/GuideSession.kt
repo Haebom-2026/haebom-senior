@@ -49,7 +49,8 @@ internal object GuideSession {
     fun answer(text: String) {
         val current = active ?: return
         val reply = text.trim().takeIf { it.isNotEmpty() } ?: return
-        val query = current.query ?: reply.takeIf { current.task == GuideTask.YOUTUBE }
+        // 대답이 "임영웅 검색해 줘" 처럼 문장이어도 검색어("임영웅")만
+        val query = current.query ?: (GuideTask.searchWords(reply) ?: reply).takeIf { current.task == GuideTask.YOUTUBE }
         serial++
         active = current.copy(
             utterance = (current.utterance + " / " + reply).take(200),
