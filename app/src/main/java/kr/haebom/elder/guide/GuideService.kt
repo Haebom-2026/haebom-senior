@@ -1156,6 +1156,17 @@ class GuideService : AccessibilityService() {
                 GuideCaption.post(getString(R.string.guide_gov24_limited), GuideCaption.Tone.INFO)
                 kr.haebom.elder.launchGuide(this, GuideTask.GOV24, foreground, announce = false, null, spoken)
             }
+            is CommandRoute.OpenApp -> {
+                val opened = kr.haebom.elder.openAppByName(this, route.app)
+                when {
+                    opened != null -> GuideCaption.post(getString(R.string.caption_done_open_app, opened), GuideCaption.Tone.DONE)
+                    HaebomServer.api != null -> confirmAi(spoken, foreground)
+                    else -> {
+                        GuideCaption.heard(spoken)
+                        GuideCaption.post(getString(R.string.caption_unrecognized), GuideCaption.Tone.WARN)
+                    }
+                }
+            }
             is CommandRoute.Task -> {
                 GuideCaption.post(
                     getString(R.string.caption_heard_task, spoken, getString(route.task.nextStepText())),
@@ -1306,12 +1317,9 @@ class GuideService : AccessibilityService() {
      * (홈 화면에서 아이콘을 찾는 안내보다 빠름). 그 밖에는 애매하니 화면을 보며 안내할지 물음.
      */
     private fun confirmAi(spoken: String, foreground: String?) {
-        val app = GuideTask.appSlot(spoken)?.let { name -> Confirm.findApp(name, launcherApps()) }
-        val launch = app?.let { packageManager.getLaunchIntentForPackage(it.second) }
-        if (app != null && launch != null) {
-            GuideSession.stop()
-            GuideCaption.post(getString(R.string.caption_done_open_app, app.first), GuideCaption.Tone.DONE)
-            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val opened = GuideTask.openOnlyApp(spoken)?.let { kr.haebom.elder.openAppByName(this, it) }
+        if (opened != null) {
+            GuideCaption.post(getString(R.string.caption_done_open_app, opened), GuideCaption.Tone.DONE)
             return
         }
         confirmThen(spoken, getString(R.string.confirm_ai_guide)) {
@@ -1320,11 +1328,6 @@ class GuideService : AccessibilityService() {
         }
     }
 
-    /** 폰에 깔린(홈 화면에 보이는) 앱들의 (이름, 패키지) */
-    private fun launcherApps(): List<Pair<String, String>> = runCatching {
-        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        packageManager.queryIntentActivities(home, 0).map { it.loadLabel(packageManager).toString() to it.activityInfo.packageName }
-    }.getOrDefault(emptyList())
 
     /** L3 사기 의심: 묻지 않고 바로 보호자 알림, 안내 멈춤, 지금 화면 위에 경고 카드 */
     private fun warnScam(assessment: Assessment, foreground: String?) {

@@ -226,6 +226,15 @@ class GuideInputActivity : Activity() {
             warnFinance(spoken, assessment)
             return
         }
+        // 열어 달라고만 했으면 앱만 열고 끝 (정부24·유튜브·연락처도)
+        GuideTask.openOnlyApp(spoken)?.let { name ->
+            openAppByName(this, name)?.let { opened ->
+                handlingResult = true
+                GuideCaption.post(getString(R.string.caption_done_open_app, opened), GuideCaption.Tone.DONE)
+                finish()
+                return
+            }
+        }
         val task = GuideTask.forCommand(spoken, foregroundPackage)
         if (task == null && HaebomServer.api != null) {
             // 앱이 모르는 일: 화면 안내 AI 가 지금 화면을 보고 하나씩 안내

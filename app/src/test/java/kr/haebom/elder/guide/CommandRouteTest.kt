@@ -14,8 +14,9 @@ class CommandRouteTest {
             CommandRoute.of("유튜브에 임영웅 검색해줘", "com.sec.android.app.launcher", aiAvailable = true),
         )
         assertEquals(CommandRoute.Task(GuideTask.CONTACTS, null), CommandRoute.of("연락처 추가해 줘", null, aiAvailable = true))
-        assertEquals(CommandRoute.Ai, CommandRoute.of("카카오톡 열어 줘", "com.sec.android.app.launcher", aiAvailable = true))
-        assertEquals(CommandRoute.Unrecognized, CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = false))
+        // 앱을 열기만 하라는 말은 서버가 없어도 그 앱만 엶
+        assertEquals(CommandRoute.OpenApp("카카오톡"), CommandRoute.of("카카오톡 열어 줘", "com.sec.android.app.launcher", aiAvailable = true))
+        assertEquals(CommandRoute.OpenApp("카카오톡"), CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = false))
         assertEquals(CommandRoute.Empty, CommandRoute.of("  ", youtube, aiAvailable = true))
     }
 
@@ -40,7 +41,27 @@ class CommandRouteTest {
         assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("유튜브에 임영웅 검색해줘", null, aiAvailable = true))
         // 다른 곳을 말했으면 유튜브로 짐작하지 않음
         assertEquals(CommandRoute.Ai, CommandRoute.of("설정에서 디스플레이 찾아줘", null, aiAvailable = true))
-        assertEquals(CommandRoute.Ai, CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.OpenApp("카카오톡"), CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = true))
+    }
+
+    @Test
+    fun openingAnAppOnlyOpensIt() {
+        // 정해 둔 시연(등본·검색·연락처 추가)으로 넘어가지 않고 앱만 엶
+        assertEquals(CommandRoute.OpenApp("정부24"), CommandRoute.of("정부24 열어 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.OpenApp("정부24"), CommandRoute.of("정부24 앱 좀 열어줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.OpenApp("유튜브"), CommandRoute.of("유튜브 켜 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.OpenApp("연락처"), CommandRoute.of("연락처 열어 줘", null, aiAvailable = true))
+        // 할 일이 더 있으면 그 일로
+        assertEquals(CommandRoute.Gov24, CommandRoute.of("정부24에서 등본 떼 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("유튜브에서 임영웅 검색해 줘", null, aiAvailable = true))
+    }
+
+    @Test
+    fun requestsOutsideTheKnownStepsGoToTheAiAsSpoken() {
+        // 정부24 의 다른 서류, 연락처에서 찾기 같은 일은 앱이 순서를 모름 → 말 그대로 AI 안내
+        assertEquals(CommandRoute.Ai, CommandRoute.of("정부24에서 건강보험 자격득실 떼 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Ai, CommandRoute.of("연락처에서 홍길동 찾아 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Ai, CommandRoute.of("카카오톡 켜서 큰딸한테 사진 보내 줘", null, aiAvailable = true))
     }
 
     @Test

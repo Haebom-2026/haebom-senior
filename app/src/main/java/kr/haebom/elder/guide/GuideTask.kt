@@ -184,19 +184,26 @@ internal enum class GuideTask(val appPackage: String?) {
         private val PHONE_WORDS = listOf("전화번호", "휴대폰번호", "핸드폰번호", "폰번호", "번호")
         private val SAVE_WORDS = listOf("추가", "등록", "저장", "넣", "입력", "만들")
 
-        /** "연락처 추가", "전화번호 등록하고 싶어", "번호 저장해 줘" 같은 말. 비밀번호·인증번호는 아님 */
+        /**
+         * "연락처 추가", "새 연락처", "전화번호 등록하고 싶어", "번호 저장해 줘" 같은 말. 비밀번호·인증번호는 아님.
+         * 추가·저장하는 말이 있어야 함: "연락처에서 홍길동 찾아 줘" 는 연락처 추가가 아니라 AI 에 맡김
+         */
         private fun isContactCommand(normalized: String): Boolean {
             if (isPrivateCommand(normalized)) return false
-            return CONTACT_WORDS.any { it in normalized } ||
-                (PHONE_WORDS.any { it in normalized } && SAVE_WORDS.any { it in normalized })
+            val saving = SAVE_WORDS.any { it in normalized } || "새연락처" in normalized
+            return (CONTACT_WORDS.any { it in normalized } || PHONE_WORDS.any { it in normalized }) && saving
         }
+
+        /** 앱이 정해진 순서로 안내할 수 있는 정부24 일 (지금은 주민등록표 등본·초본만) */
+        private val GOV24_KNOWN = listOf("등본", "초본")
 
         fun fromCommand(command: String): GuideTask? {
             val normalized = normalize(command)
             return when {
                 isContactCommand(normalized) -> CONTACTS
                 "유튜브" in normalized || "youtube" in normalized -> YOUTUBE
-                "등본" in normalized || "정부24" in normalized -> GOV24
+                // 정부24 의 다른 일("건강보험 자격득실 떼 줘")은 앱이 순서를 모르므로 AI 가 말 그대로 안내
+                GOV24_KNOWN.any { it in normalized } -> GOV24
                 else -> null
             }
         }
@@ -245,6 +252,23 @@ internal enum class GuideTask(val appPackage: String?) {
         fun appSlot(command: String): String? =
             OPEN_APP.find(command)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it.length <= 30 }
 
+        /** 문장 전체가 "○○ (앱) (좀) 열어 줘" 뿐인 말 (뒤에 다른 할 일이 없음) */
+        private val OPEN_ONLY = Regex(
+            """^\s*(.+?)\s*(앱|어플)?\s*(을|를)?\s*(좀\s*)?(열어|켜|실행해|실행|들어가)\s*(줘|줘요|주세요|줄래|줄래요|봐|봐요|주라)?[\s.!?~]*$""",
+        )
+
+        /**
+         * 앱을 열기만 하라는 말이면 그 앱 이름. "정부24 열어 줘", "유튜브 켜 줘", "연락처 앱 좀 열어 줘" → 앱만 열고
+         * 그 뒤는 어르신에게 맡김 (등본·검색·연락처 추가 안내를 시작하지 않음).
+         * "유튜브 켜서 임영웅 찾아 줘", "정부24에서 등본 열어 줘" 처럼 할 일이 더 있으면 null
+         */
+        fun openOnlyApp(command: String): String? {
+            val name = OPEN_ONLY.find(command)?.groupValues?.get(1)?.trim() ?: return null
+            if (name.isEmpty() || name.length > 20) return null
+            if (listOf("에서", "에서는", "하고", "해서").any { it in name }) return null
+            return name
+        }
+
         /** 말한 앱 이름과 지금 앱 이름이 같은 앱인지 ("카카오톡" ↔ "카카오톡", "유튜브" ↔ "YouTube") */
         fun isSameApp(spoken: String, label: String): Boolean {
             val a = normalize(spoken).removeSuffix("앱")
@@ -255,8 +279,13 @@ internal enum class GuideTask(val appPackage: String?) {
             return a == b || (a.length >= 2 && (a in b || b in a)) || (alias != null && alias in b)
         }
 
-        /** 앱이 모르는 일을 AI 에 보낼 때의 목표와 slots */
+        /**
+         * 앱이 모르는 일을 AI 에 보낼 때의 목표와 slots. 할 일은 utterance(어르신이 한 말 그대로)가 정하고,
+         * 여기서는 어느 앱 일인지만 알려 줌 (정해 둔 서류·검색어를 넣지 않음)
+         */
         fun aiRequestFor(command: String): Pair<String, Map<String, String>> {
+            val normalized = normalize(command)
+            if ("정부24" in normalized || "정부이십사" in normalized) return GOV24.aiGoal to mapOf("app" to "정부24")
             val app = appSlot(command)
             return if (app != null) GOAL_OPEN_APP to mapOf("app" to app) else GOAL_UNKNOWN to emptyMap()
         }

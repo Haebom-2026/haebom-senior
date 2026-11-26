@@ -97,6 +97,26 @@ internal fun startAiGuide(context: Context, utterance: String, foregroundPackage
     done()
 }
 
+/** 폰에 깔린(홈 화면에 보이는) 앱들의 (이름, 패키지) */
+internal fun launcherApps(context: Context): List<Pair<String, String>> = runCatching {
+    val pm = context.packageManager
+    val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    pm.queryIntentActivities(home, 0).map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+}.getOrDefault(emptyList())
+
+/** 말한 이름의 앱을 열기만 함. 연 앱의 이름, 폰에 없거나 못 열면 null */
+internal fun openAppByName(context: Context, spokenName: String): String? {
+    val app = kr.haebom.elder.guide.Confirm.findApp(spokenName, launcherApps(context)) ?: return null
+    val launch = context.packageManager.getLaunchIntentForPackage(app.second) ?: return null
+    GuideSession.stop()
+    return try {
+        context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        app.first
+    } catch (_: ActivityNotFoundException) {
+        null
+    }
+}
+
 internal fun showGuideMessage(activity: Activity, message: Int, done: () -> Unit = {}) {
     ElderUi.dialog(activity, activity.getString(message), positive = activity.getString(R.string.ok), onPositive = done, onCancel = done)
 }

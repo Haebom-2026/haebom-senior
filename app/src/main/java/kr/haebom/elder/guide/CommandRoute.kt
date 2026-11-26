@@ -28,6 +28,9 @@ internal sealed class CommandRoute {
     /** 정부24: "본인인증에서 멈춰요" 확인 카드 뒤 안내 */
     data object Gov24 : CommandRoute()
 
+    /** "○○ 열어 줘": 그 앱만 열고 끝 (서버가 없어도 됨). 폰에 없는 앱이면 AI·"못 알아들음" 으로 */
+    data class OpenApp(val app: String) : CommandRoute()
+
     /** 앱이 아는 일을 지금 바로 시작 */
     data class Task(val task: GuideTask, val query: String?) : CommandRoute()
 
@@ -59,6 +62,8 @@ internal sealed class CommandRoute {
             // "근처 은행 어디야" 는 금융 요청이 아니라 장소 찾기
             Search.nearby(spoken)?.let { return MapSearch(it) }
             if (assessment.level == Level.L2) return Finance(assessment)
+            // 열어 달라고만 했으면 정부24·유튜브·연락처도 열기만 (그 뒤 할 일은 어르신이 정함)
+            GuideTask.openOnlyApp(spoken)?.let { return OpenApp(it) }
             val task = GuideTask.forCommand(spoken, foreground)
             return when {
                 task == GuideTask.GOV24 -> Gov24

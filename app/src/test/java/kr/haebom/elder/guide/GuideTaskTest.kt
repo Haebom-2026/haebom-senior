@@ -135,6 +135,9 @@ class GuideTaskTest {
         assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("엄마 전화번호 저장해 줘"))
         assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("번호 추가해 줘"))
         assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("주소록에 넣어 줘"))
+        assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("새 연락처 만들어 줘"))
+        // 추가·저장하는 말이 없으면 연락처 추가가 아님
+        assertNull(GuideTask.fromCommand("연락처에서 홍길동 찾아 줘"))
         assertNull(GuideTask.fromCommand("인증번호 넣어 줘"))
         assertNull(GuideTask.fromCommand("비밀번호 입력해 줘"))
         assertEquals(CommandRoute.Task(GuideTask.CONTACTS, null), CommandRoute.of("전화번호 등록하고 싶어", null, aiAvailable = true))
@@ -148,5 +151,24 @@ class GuideTaskTest {
         assertEquals(R.string.guide_authentication_stop, GuideTask.GOV24.findStep(listOf(loginChoice), false).caption)
         // 인증을 마친 뒤 글자만 남은 화면은 멈추지 않음
         assertFalse(GuideTask.GOV24.findStep(listOf(leftoverText), false).caption == R.string.guide_authentication_stop)
+    }
+
+    @Test
+    fun gov24StepsOnlyForTheCertificateTheAppKnows() {
+        assertEquals(GuideTask.GOV24, GuideTask.fromCommand("정부24에서 등본 떼 줘"))
+        assertEquals(GuideTask.GOV24, GuideTask.fromCommand("주민등록 초본 발급해 줘"))
+        assertNull(GuideTask.fromCommand("정부24에서 건강보험 자격득실 떼 줘"))
+        // AI 에는 정부24 일이라는 것만 알리고, 할 일은 말 그대로 (등본을 넣지 않음)
+        assertEquals("GOV24" to mapOf("app" to "정부24"), GuideTask.aiRequestFor("정부24에서 건강보험 자격득실 떼 줘"))
+    }
+
+    @Test
+    fun openOnlyMeansNothingElseToDo() {
+        assertEquals("정부24", GuideTask.openOnlyApp("정부24 열어 줘"))
+        assertEquals("카카오톡", GuideTask.openOnlyApp("카카오톡 앱을 실행해 주세요."))
+        assertEquals("유튜브", GuideTask.openOnlyApp("유튜브 좀 켜 줘"))
+        assertNull(GuideTask.openOnlyApp("유튜브 켜서 임영웅 찾아 줘"))
+        assertNull(GuideTask.openOnlyApp("정부24에서 등본 열어 줘"))
+        assertNull(GuideTask.openOnlyApp("임영웅 노래 틀어 줘"))
     }
 }
