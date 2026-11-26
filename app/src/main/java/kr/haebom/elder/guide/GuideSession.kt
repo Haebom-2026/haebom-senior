@@ -20,6 +20,8 @@ internal object GuideSession {
         val slots: Map<String, String> = task?.defaultSlots(query).orEmpty(),
         /** (서버 v4) 바로 앞 AI 질문에 고른 답. 다음 요청에 한 번 보내고 비움 */
         val userReply: String = "",
+        /** (R6) 서버 classify 의 명령 번호. 있으면 guide 에 싣고, 안내가 끝나면 끝 신호를 보냄 */
+        val commandId: Long? = null,
     )
 
     var active: Active? = null
@@ -34,7 +36,15 @@ internal object GuideSession {
     /** 안내가 새로 시작될 때 (가족의 도전 중 도우미를 썼는지 기록) */
     var onStarted: (() -> Unit)? = null
 
+    /** 안내 하나가 끝남 (멈춤, 또는 새 안내로 바뀜). 명령 번호가 있으면 끝 신호를 보내는 데 씀 */
+    var onEnded: ((Active) -> Unit)? = null
+
+    private fun endCurrent() {
+        active?.let { ended -> onEnded?.invoke(ended) }
+    }
+
     fun start(task: GuideTask, packageName: String, query: String? = null, utterance: String = "") {
+        endCurrent()
         serial++
         active = Active(task, packageName, query, utterance = utterance.ifBlank { task.defaultUtterance(query) })
         onStarted?.invoke()
@@ -42,9 +52,10 @@ internal object GuideSession {
     }
 
     /** 앱이 모르는 일: 화면 안내 AI 로만 안내 */
-    fun startAi(utterance: String, goal: String, slots: Map<String, String>) {
+    fun startAi(utterance: String, goal: String, slots: Map<String, String>, commandId: Long? = null) {
+        endCurrent()
         serial++
-        active = Active(task = null, packageName = null, utterance = utterance, goal = goal, slots = slots)
+        active = Active(task = null, packageName = null, utterance = utterance, goal = goal, slots = slots, commandId = commandId)
         onStarted?.invoke()
         onChange?.invoke()
     }
@@ -97,8 +108,15 @@ internal object GuideSession {
         active = active?.copy(queryFilled = true)
     }
 
+    /** 방금 시작한 안내에 명령 번호를 붙임 (유튜브처럼 앱 규칙으로 시작한 서버 후보 앱) */
+    fun attachCommand(commandId: Long) {
+        val current = active ?: return
+        if (current.commandId == null) active = current.copy(commandId = commandId)
+    }
+
     fun stop() {
         if (active == null) return
+        endCurrent()
         // 왜 끝났는지 추적용 (부른 곳)
         android.util.Log.i("HaebomGuide", "안내 끝: ${Throwable().stackTrace.getOrNull(1)}")
         active = null

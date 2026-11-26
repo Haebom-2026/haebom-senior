@@ -26,8 +26,21 @@ internal class ClassifyClient(context: Context, private val api: HaebomApi) {
         return lastCommandId
     }
 
-    /** 캐시에 있는 판단 (없으면 null). 캐시에서 나온 판단은 명령 번호가 없어 앱 선택 API 를 부르지 않음 */
+    /** 캐시에 있는 판단 (없으면 null) */
     fun cached(utterance: String): Classified? = cache.get(utterance)
+
+    /**
+     * 캐시로 바로 진행한 말도 서버에 명령을 만들어 둠 (기다리지 않음). 서버에 명령이 있어야 앱 선택·지도 안내·끝 신호가 됨.
+     * 같은 실행기(한 줄)라 뒤에 부르는 앱 선택 API 는 이 요청이 끝난 뒤에 감
+     */
+    fun register(commandId: Long, utterance: String, ruleLevel: Level) {
+        io.execute {
+            val body = JSONObject().put("commandId", commandId).put("utterance", utterance.take(200))
+                .put("ruleLevel", ruleLevel.wire).toString()
+            val reply = api.call("POST", "/v1/elder/classify", body)
+            Log.d(TAG, "classify #17 명령만 만듦 (캐시 사용) → ${reply.code} ${reply.reason ?: ""}")
+        }
+    }
 
     fun classify(commandId: Long, utterance: String, ruleLevel: Level, done: (Classified?) -> Unit) {
         var answered = false
@@ -80,16 +93,46 @@ internal class ClassifyClient(context: Context, private val api: HaebomApi) {
                     answer?.let { (question, option) -> put("answer", JSONObject().put("questionId", question).put("option", option)) }
                 }
                 .toString()
-            val reply = api.call("POST", "/v1/elder/commands/$commandId/app", body)
-            Log.d(TAG, "앱 선택 → ${reply.code} ${reply.reason ?: ""} app=${appId ?: "-"} answer=${answer?.second ?: "-"}")
+            // 겹친 요청(409)·jev 시간 초과(503)는 같은 요청을 다시 (계약서 S4 3장, 앱 연동 안내 5장)
+            var reply = api.call("POST", "/v1/elder/commands/$commandId/app", body)
+            var tries = 1
+            while ((reply.code == 409 || reply.code == 503) && tries < RETRIES) {
+                Thread.sleep(RETRY_DELAY_MS * tries)
+                reply = api.call("POST", "/v1/elder/commands/$commandId/app", body)
+                tries++
+            }
+            Log.d(TAG, "앱 선택 → ${reply.code} ${reply.reason ?: ""} app=${appId ?: "-"} answer=${answer?.second ?: "-"} (${tries}번)")
             val route = reply.json()?.takeIf { reply.ok }?.optJSONObject("route")?.let(ServerRoute::parseRoute)
             done?.let { callback -> main.post { callback(route) } }
+        }
+    }
+
+    /**
+     * 끝 신호 `POST /v1/elder/commands/{id}/end` (S4 8장). [result]: done · stopped_safe · stopped_user · gave_up.
+     * done·stopped_safe 이면 [finalScreen](guide 와 같은 화면 객체)을 꼭. 404(지난 명령)·409(이미 끝남)는 버림
+     */
+    fun end(commandId: Long, result: String, finalScreen: String?, deviceId: String?, lastAction: LastAction?) {
+        io.execute {
+            val body = JSONObject().put("result", result).apply {
+                finalScreen?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { put("finalScreen", it) }
+                deviceId?.takeIf(ScreenPayload::isValidDeviceId)?.let { put("deviceId", it) }
+                lastAction?.let { put("lastAction", it.toJson()) }
+            }.toString()
+            var reply = api.call("POST", "/v1/elder/commands/$commandId/end", body)
+            if (reply.code == 503 || reply.code == -1) reply = api.call("POST", "/v1/elder/commands/$commandId/end", body)
+            Log.d(
+                TAG,
+                "끝 신호 → ${reply.code} ${reply.reason ?: ""} cmd=$commandId $result 화면=${finalScreen != null}" +
+                    (lastAction?.let { " last=${it.seq}:${it.action}" }.orEmpty()),
+            )
         }
     }
 
     private companion object {
         const val TAG = "HaebomGuide"
         const val TIMEOUT_MS = 4_000L
+        const val RETRIES = 3
+        const val RETRY_DELAY_MS = 400L
     }
 }
 

@@ -118,16 +118,170 @@ class GuideService : AccessibilityService() {
         GuideCaption.listener = captionChanged
         SpokenCommandHook.handler = spokenHook
         Approvals.listener = approvalListener
+        GuideSession.onEnded = { endCommand(it) }
+        // 행동 기록 이벤트 (설정 파일을 늦게 다시 읽는 기기 대비)
+        serviceInfo?.let { info ->
+            info.eventTypes = info.eventTypes or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+            serviceInfo = info
+        }
         DevScreenHook.sink?.onConnected(this)
         scheduleRefresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        recordAction(event)
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            // 행동 기록용 이벤트 (화면은 뒤따르는 내용 변경 이벤트로 다시 읽음)
+            return
+        }
         DevScreenHook.sink?.onScreenChanged(this)
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let(::onForegroundApp)
         }
         scheduleRefresh()
+    }
+
+    // ───────────────────────── 명령 기록 (R6: commandId·lastAction·끝 신호) ─────────────────────────
+    // 서버 지도 안내·학습용. 어르신이 실제로 한 행동을 접근성 이벤트로 잡아 다음 guide 요청에 한 번 실음
+
+    private var steps: CommandSteps? = null
+    /** 누르기·입력·화면 바뀜 시각 (그 직후 저절로 생기는 스크롤은 행동으로 보지 않음) */
+    private var lastTouchAt = 0L
+    private var lastWindowAt = 0L
+    private var lastScrollAt = 0L
+    private var lastScrollDir: String? = null
+    private var lastTypeBox: String? = null
+    private var lastWindowPkg: String? = null
+    private val homePackages: Set<String> by lazy {
+        packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
+            .mapNotNull { it.activityInfo?.packageName }.filter { it != "android" }.toSet()
+    }
+
+    /** 지금 안내의 명령 기록 (명령 번호가 없는 안내면 null) */
+    private fun stepsFor(active: GuideSession.Active?): CommandSteps? {
+        val id = active?.commandId ?: return null
+        steps?.takeIf { it.commandId == id }?.let { return it.takeUnless { s -> s.ended } }
+        return CommandSteps(id).also { steps = it }
+    }
+
+    private fun recordAction(event: AccessibilityEvent) {
+        val pkg = event.packageName?.toString() ?: return
+        val now = SystemClock.uptimeMillis()
+        val windowChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName
+        val enteredHome = windowChanged && pkg in homePackages && lastWindowPkg != null && lastWindowPkg !in homePackages
+        if (windowChanged) {
+            lastWindowAt = now
+            lastWindowPkg = pkg
+        }
+        val s = stepsFor(GuideSession.active) ?: return
+        // 해봄 화면·카드·단추, 키보드 자판은 어르신의 앱 안 행동이 아님
+        if (pkg == packageName) return
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                if (event.source?.window?.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return
+                val (text, box) = actionSource(event)
+                lastTouchAt = now
+                lastScrollDir = null
+                lastTypeBox = null
+                logAction(s.record(LastAction.TAP, text, box))
+            }
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                val (_, box) = actionSource(event)
+                val key = box?.joinToString(",")
+                // 한 칸에 이어서 쓰는 글자는 행동 하나
+                val sameField = key != null && key == lastTypeBox && now - lastTouchAt < TYPE_JOIN_MS
+                lastTouchAt = now
+                lastScrollDir = null
+                if (sameField) return
+                lastTypeBox = key
+                logAction(s.record(LastAction.TYPE, "", box))
+            }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                // 밀기는 서버가 밀라고 한 방향일 때만 (배너가 저절로 넘어가는 것·목록이 불러지며 움직이는 것과 구분할 수 없어서)
+                if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return
+                if (now - lastTouchAt < SCROLL_QUIET_MS || now - lastWindowAt < SCROLL_QUIET_MS) return
+                val dir = swipeDirection(event.scrollDeltaX, event.scrollDeltaY) ?: return
+                if (dir == lastScrollDir && now - lastScrollAt < SCROLL_JOIN_MS) {
+                    lastScrollAt = now
+                    return
+                }
+                val shown = s.shown ?: return
+                if (shown.type != AiReply.SWIPE || shown.dir != dir) return
+                lastScrollDir = dir
+                lastScrollAt = now
+                logAction(s.record(LastAction.swipe(dir), ""))
+            }
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                if (now - lastTouchAt < BACK_QUIET_MS) return
+                when {
+                    // 누르지 않았는데 홈 화면으로: 홈으로 나감
+                    enteredHome -> logAction(s.record(LastAction.HOME, ""))
+                    // "뒤로 가세요" 안내 뒤 누르지 않았는데 화면이 바뀜: 뒤로 (안내 없는 뒤로 가기는 알 수 없음)
+                    s.shown?.nav == "back" -> logAction(s.record(LastAction.BACK, ""))
+                }
+            }
+        }
+    }
+
+    private fun logAction(action: LastAction) {
+        android.util.Log.d(TAG, "행동 #${action.seq} ${action.action}('${action.text}')${if (action.stepId != null) " 안내 따름" else ""}")
+    }
+
+    /** 누른 요소의 글자(t, 없으면 d)와 자리. 비밀번호 칸 글자는 보내지 않음 */
+    private fun actionSource(event: AccessibilityEvent): Pair<String, IntArray?> {
+        val node = event.source
+        val box = node?.let { n -> Rect().also(n::getBoundsInScreen) }?.let { intArrayOf(it.left, it.top, it.right, it.bottom) }
+        if (node?.isPassword == true) return "" to box
+        val own = node?.text?.toString()?.trim().orEmpty().ifEmpty { node?.contentDescription?.toString()?.trim().orEmpty() }
+        val text = own.ifEmpty { event.text.joinToString(" ").trim().ifEmpty { event.contentDescription?.toString()?.trim().orEmpty() } }
+        return text.take(100) to box
+    }
+
+    /** 스크롤 양 → 손가락 방향 (내용이 아래로 넘어가면 손가락은 위로) */
+    private fun swipeDirection(dx: Int, dy: Int): String? = when {
+        dx == 0 && dy == 0 -> null
+        kotlin.math.abs(dy) >= kotlin.math.abs(dx) -> if (dy > 0) "up" else "down"
+        else -> if (dx > 0) "left" else "right"
+    }
+
+    /** 이 화면에 보인 서버 안내를 기억 (응답 하나에 한 번). 멈춤 단계·다 됨은 끝 신호 결과로 */
+    private var shownRequestId = -1
+    private fun rememberShown(reply: AiReply, captured: CapturedScreen) {
+        val s = stepsFor(GuideSession.active) ?: return
+        s.forgetShownUnless(captured.fingerprint)
+        if (reply.requestId == shownRequestId) return
+        shownRequestId = reply.requestId
+        when {
+            reply.type == AiReply.DONE -> s.markDone(screenJson(captured))
+            reply.isStopped -> s.markSafeStop(screenJson(captured))
+            else -> s.clearSafeStop()
+        }
+        val stepId = reply.stepId ?: return
+        val node = if (reply.type == AiReply.HIGHLIGHT || reply.type == AiReply.SUGGEST) AiReply.findTarget(reply, captured.nodes) else null
+        s.show(
+            CommandSteps.Shown(
+                stepId = stepId,
+                type = reply.type,
+                box = node?.bounds,
+                label = node?.let { (it.text?.trim()?.takeIf(String::isNotEmpty) ?: it.description?.trim()).orEmpty() }.orEmpty(),
+                dir = reply.dir,
+                nav = reply.nav,
+                fingerprint = captured.fingerprint,
+            ),
+        )
+    }
+
+    private fun screenJson(captured: CapturedScreen): String? {
+        val size = screenSize()
+        return ScreenPayload.screenObject(captured.packageName, size.x, size.y, captured.nodes)
+    }
+
+    /** 안내가 끝남: 서버에 끝 신호 (다 됨·멈춤 단계면 마지막 화면과 함께) */
+    private fun endCommand(ended: GuideSession.Active) {
+        val id = ended.commandId ?: return
+        val s = steps?.takeIf { it.commandId == id } ?: CommandSteps(id)
+        val (result, screen) = s.finish() ?: return
+        classifier?.end(id, result, screen, settings.deviceId, s.takePending())
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -369,7 +523,10 @@ class GuideService : AccessibilityService() {
         }
 
         // 목적지에 도착했으면 서버를 더 부르지 않고 마침
-        goalReached(active, foreground, step)?.let { return finishGuide(it) }
+        goalReached(active, foreground, step)?.let { say ->
+            captured?.let { cap -> stepsFor(active)?.markDone(screenJson(cap)) }
+            return finishGuide(say)
+        }
 
         // 로그인 방법을 고르는 화면: AI 가 정하지 않게 어르신께 먼저 물음 (고른 뒤에는 그 단추를 짚음)
         captured?.let { cap ->
@@ -593,6 +750,8 @@ class GuideService : AccessibilityService() {
         val id = client.request(
             settings.proficiency.aiMode,
             active.goal, active.utterance, active.slots + (SAFETY_SLOT to SAFETY_NOTE) + (FORM_SLOT to FORM_NOTE) + state, screenJson, aiHistory.toList(), settings.deviceId, GuideSession.consumeUserReply(),
+            commandId = active.commandId,
+            lastAction = stepsFor(active)?.takePending(),
         ) { requestId, outcome -> onAiOutcome(requestId, fingerprint, outcome) }
         aiPending = AiPending(id, fingerprint)
     }
@@ -633,6 +792,7 @@ class GuideService : AccessibilityService() {
     }
 
     private fun applyAi(reply: AiReply, captured: CapturedScreen, windowId: Int, foreground: String): Decision {
+        rememberShown(reply, captured)
         val say = reply.say.ifBlank { getString(R.string.caption_here) }
         if (reply.type == AiReply.SWIPE) {
             // 밀기: 화살표 + 찾는 글자 기억 (이미 화면에 있으면 바로 짚음)
@@ -1521,8 +1681,11 @@ class GuideService : AccessibilityService() {
     private fun askServer(spoken: String, local: CommandRoute, foreground: String?) {
         val client = classifier ?: return runLocal(local, spoken, foreground)
         client.cached(spoken)?.let { cached ->
-            android.util.Log.d(TAG, "classify 캐시 사용 (서버 안 부름): ${cached.intent} role=${cached.route?.role}")
-            applyServer(cached, spoken, local, foreground, commandId = null)
+            // 판단은 캐시로 바로. 서버에는 명령만 만들어 둠 (앱 선택·지도 안내·끝 신호에 명령이 필요)
+            val id = client.nextCommandId()
+            android.util.Log.d(TAG, "classify 캐시 사용: ${cached.intent} role=${cached.route?.role} cmd=$id")
+            client.register(id, spoken, Sensitivity.fromCommand(spoken, foreground).level)
+            applyServer(cached, spoken, local, foreground, commandId = id)
             return
         }
         val id = client.nextCommandId()
@@ -1588,8 +1751,7 @@ class GuideService : AccessibilityService() {
         val installed = ServerRoute.installedCandidates(route) { pkg -> packageManager.getLaunchIntentForPackage(pkg) != null }
         android.util.Log.d(TAG, "서버 후보 ${route.role}: ${route.candidates.size}개 중 깔린 앱 ${installed.size}개")
         when {
-            installed.isEmpty() && route.exclusive ->
-                GuideCaption.post(getString(R.string.server_app_missing, route.candidates.first().name), GuideCaption.Tone.WARN)
+            installed.isEmpty() && route.exclusive -> offerInstall(route.candidates.first())
             installed.isEmpty() -> runLocal(local, spoken, foreground)
             installed.size == 1 -> startServerApp(installed.single(), spoken, foreground, commandId, askedUser = false)
             else -> showPick(
@@ -1621,18 +1783,50 @@ class GuideService : AccessibilityService() {
             ) { picked ->
                 val option = question.options.firstOrNull { it.name == picked } ?: return@showPick
                 commandId?.let { client?.chooseApp(it, candidate.appId, askedUser, question.questionId to option.id) }
-                launchServerApp(candidate, pkg, "$spoken ($picked)", foreground)
+                launchServerApp(candidate, pkg, "$spoken ($picked)", foreground, commandId)
             }
             return
         }
         commandId?.let { client?.chooseApp(it, candidate.appId, askedUser) }
-        launchServerApp(candidate, pkg, spoken, foreground)
+        launchServerApp(candidate, pkg, spoken, foreground, commandId)
     }
 
-    private fun launchServerApp(candidate: ServerRoute.Candidate, pkg: String, utterance: String, foreground: String?) {
+    /** 그 앱이어야 하는데 안 깔림: 다른 앱으로 바꾸지 않고 설치할지 물음 (예면 Play 스토어 설치 화면, 다 깔리면 새로 말씀) */
+    private fun offerInstall(candidate: ServerRoute.Candidate) {
+        val pkg = candidate.packages.firstOrNull()
+        if (pkg == null) {
+            GuideCaption.post(getString(R.string.server_app_missing, candidate.name), GuideCaption.Tone.WARN)
+            return
+        }
+        card.show(
+            key = "pick:install:${candidate.appId}",
+            title = getString(R.string.server_app_install_title, candidate.name),
+            message = getString(R.string.server_app_install_question, candidate.name),
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.server_app_install_yes)) {
+                    val market = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=$pkg"))
+                        .setPackage("com.android.vending").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val web = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val opened = runCatching { startActivity(market) }.isSuccess || runCatching { startActivity(web) }.isSuccess
+                    GuideCaption.post(
+                        getString(if (opened) R.string.server_app_install_opened else R.string.guide_app_unavailable),
+                        if (opened) GuideCaption.Tone.INFO else GuideCaption.Tone.WARN,
+                    )
+                },
+                OverlayCard.Action(getString(R.string.server_app_install_no), ElderUi.Kind.QUIET) {
+                    GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
+                },
+            ),
+        )
+        speak(getString(R.string.server_app_install_question, candidate.name))
+    }
+
+    private fun launchServerApp(candidate: ServerRoute.Candidate, pkg: String, utterance: String, foreground: String?, commandId: Long?) {
         if (pkg == GuideTask.YOUTUBE.appPackage) {
             GuideCaption.post(getString(GuideTask.YOUTUBE.nextStepText()), GuideCaption.Tone.INFO)
-            kr.haebom.elder.launchGuide(this, GuideTask.YOUTUBE, foreground, announce = false, GuideTask.youtubeQuery(utterance), utterance)
+            val started = kr.haebom.elder.launchGuide(this, GuideTask.YOUTUBE, foreground, announce = false, GuideTask.youtubeQuery(utterance), utterance)
+            if (started) commandId?.let(GuideSession::attachCommand)
             return
         }
         val launch = packageManager.getLaunchIntentForPackage(pkg)
@@ -1647,6 +1841,7 @@ class GuideService : AccessibilityService() {
             utterance = (if (openOnly) "${candidate.name} 열어 줘" else "${candidate.name}에서 $utterance").take(200),
             goal = GuideTask.GOAL_OPEN_APP,
             slots = mapOf("app" to candidate.name) + (candidate.goalName?.let { mapOf("goal_name" to it) } ?: emptyMap()),
+            commandId = commandId,
         )
         android.util.Log.d(TAG, "서버 후보 앱 열기: ${candidate.appId} ($pkg)")
         GuideCaption.post(getString(R.string.pick_app_opened, candidate.name), GuideCaption.Tone.INFO)
@@ -2228,6 +2423,7 @@ class GuideService : AccessibilityService() {
         if (connected) DevScreenHook.sink?.onDisconnected()
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
+        GuideSession.onEnded = null
         if (GuideCaption.listener === captionChanged) GuideCaption.listener = null
         if (SpokenCommandHook.handler === spokenHook) SpokenCommandHook.handler = null
         handler.removeCallbacksAndMessages(null)
@@ -2252,6 +2448,14 @@ class GuideService : AccessibilityService() {
     }
 
     private companion object {
+        /** 누르기·화면 바뀜 직후 이만큼은 스크롤을 행동으로 보지 않음 (목록이 불러지며 움직임) */
+        const val SCROLL_QUIET_MS = 1_200L
+        /** 한 번 미는 동안 이어지는 스크롤 이벤트 */
+        const val SCROLL_JOIN_MS = 800L
+        /** 한 칸에 이어서 쓰는 글자 */
+        const val TYPE_JOIN_MS = 3_000L
+        /** 누른 뒤 이만큼 안에 바뀐 화면은 그 누르기 때문 (뒤로·홈으로 보지 않음) */
+        const val BACK_QUIET_MS = 1_500L
         const val SCREEN_UPDATE_INTERVAL_MS = 500L
         const val LEFT_APP_GRACE_MS = 1_500L
         const val SCROLL_TIP_AFTER_MS = 8_000L

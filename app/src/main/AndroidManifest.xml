@@ -10,6 +10,11 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- 홈 화면 앱: 어르신이 홈으로 나간 것을 서버에 행동(home)으로 알림 (R6 lastAction) -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
         <package android:name="com.google.android.youtube" />
         <package android:name="kr.go.minwon.m" />
         <package android:name="com.android.chrome" />

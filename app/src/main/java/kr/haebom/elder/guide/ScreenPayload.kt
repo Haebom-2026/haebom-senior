@@ -76,6 +76,10 @@ internal object ScreenPayload {
         mode: String = "guide",
         /** (guide@v4) 바로 앞 질문(ask)에 어르신이 고른 답. "모르겠어요" 포함 */
         userReply: String = "",
+        /** (R6) classify 의 명령 번호 */
+        commandId: Long? = null,
+        /** (R6) 바로 앞 화면에서 어르신이 실제로 한 행동 */
+        lastAction: LastAction? = null,
     ): String {
         val slotJson = slots.entries.joinToString(",", "{", "}") { (k, v) -> "${quote(k.take(40))}:${quote(v.take(100))}" }
         val historyJson = history.takeLast(MAX_HISTORY).joinToString(",", "[", "]") { quote(it.take(200)) }
@@ -83,7 +87,9 @@ internal object ScreenPayload {
         return "{\"requestId\":$requestId,\"goal\":${quote(goal.take(40))},\"utterance\":${quote(utterance.take(200))}," +
             "\"slots\":$slotJson,\"history\":$historyJson,\"mode\":${quote(mode)}," +
             (if (userReply.isBlank()) "" else "\"userReply\":${quote(userReply.take(100))},") +
-            "\"screen\":$screen$device}"
+            "\"screen\":$screen$device" +
+            (commandId?.let { ",\"commandId\":$it" }.orEmpty()) +
+            (lastAction?.let { ",\"lastAction\":${it.toJson()}" }.orEmpty()) + "}"
     }
 
     /**

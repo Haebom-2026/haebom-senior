@@ -323,6 +323,11 @@
     <string name="pick_app_server">어느 앱으로 할까요?</string>
     <string name="pick_intent">무엇을 하려고 하세요?</string>
     <string name="server_app_missing">%1$s 앱이 휴대폰에 없어요. Play 스토어에서 설치할 수 있어요.</string>
+    <string name="server_app_install_title">%1$s 앱이 없어요</string>
+    <string name="server_app_install_question">%1$s 앱이 휴대폰에 없어요. 설치할까요?</string>
+    <string name="server_app_install_yes">설치 화면 열기</string>
+    <string name="server_app_install_no">괜찮아요</string>
+    <string name="server_app_install_opened">\'설치\' 단추는 직접 눌러 주세요. 다 깔리면 다시 말씀해 주세요.</string>
     <string name="caption_map_search_guide">‘%1$s’을(를) 지도에서 찾을게요. 화면을 보면서 길찾기까지 안내해 드릴게요.</string>
     <string name="ask_title">💬 여쭤볼게요</string>
     <string name="ask_unknown">모르겠어요</string>

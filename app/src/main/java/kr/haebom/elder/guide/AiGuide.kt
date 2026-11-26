@@ -29,6 +29,10 @@ internal data class AiReply(
     val nav: String? = null,
     /** (v4) ask: 답 단추 글자 */
     val options: List<String> = emptyList(),
+    /** (R6) 이 안내의 id. 어르신이 따르면 다음 요청의 lastAction.stepId 로 돌려줌. 같은 화면 재요청엔 같은 id 가 올 수 있음 */
+    val stepId: String? = null,
+    /** (R6, dev) map(지도 안내) / ai(Claude). 로그용 */
+    val source: String? = null,
 ) {
     /** (v4) 송금·결제 확정, 공식이 아닌 사이트, 같은 단계 3번 실패: 여기서 멈추고 직접 확인하시게 */
     val isStopped: Boolean get() = status == "stopped"
@@ -84,6 +88,8 @@ internal data class AiReply(
                 typeText = json.optString("typeText").takeIf { it.isNotBlank() },
                 nav = json.optString("nav").takeIf { it.isNotBlank() },
                 options = json.optJSONArray("options")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
+                stepId = json.optString("stepId").takeIf { it.isNotBlank() },
+                source = json.optString("source").takeIf { it.isNotBlank() },
             )
         }.getOrNull()
 
@@ -145,10 +151,12 @@ internal class AiGuideClient(private val api: HaebomApi) {
         history: List<String>,
         deviceId: String?,
         userReply: String,
+        commandId: Long? = null,
+        lastAction: LastAction? = null,
         done: (requestId: Int, outcome: AiOutcome) -> Unit,
     ): Int {
         val id = ++lastRequestId
-        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId, mode, userReply)
+        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId, mode, userReply, commandId, lastAction)
         io.execute {
             val started = SystemClock.uptimeMillis()
             val reply = api.call("POST", "/v1/elder/guide", body)
@@ -161,10 +169,15 @@ internal class AiGuideClient(private val api: HaebomApi) {
                 else -> AiOutcome.Reply(parsed)
             }
             val summary = when (outcome) {
-                is AiOutcome.Reply -> outcome.reply.let { "${it.type} target=${it.target}${it.targetText?.let { t -> "('$t')" }.orEmpty()} '${it.say}'" }
+                is AiOutcome.Reply -> outcome.reply.let {
+                    "${it.type} target=${it.target}${it.targetText?.let { t -> "('$t')" }.orEmpty()} '${it.say}'" +
+                        (it.stepId?.let { s -> " step=$s" }.orEmpty()) + (it.source?.let { s -> " source=$s" }.orEmpty())
+                }
                 is AiOutcome.Failed -> outcome.reason
             }
-            Log.i(TAG, "AI #$id $goal → $summary (${elapsed}ms)")
+            val sent = (commandId?.let { " cmd=$it" }.orEmpty()) +
+                (lastAction?.let { " last=${it.seq}:${it.action}('${it.text}')${if (it.stepId != null) " 따름" else ""}" }.orEmpty())
+            Log.i(TAG, "AI #$id $goal$sent → $summary (${elapsed}ms)")
             main.post { done(id, outcome) }
         }
         return id
