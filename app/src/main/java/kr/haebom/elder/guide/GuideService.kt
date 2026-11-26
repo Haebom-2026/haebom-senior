@@ -21,11 +21,14 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import kr.haebom.elder.GuideInputActivity
 import kr.haebom.elder.R
+import kr.haebom.elder.family.Assessment
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
 import kr.haebom.elder.family.SensitiveAlerter
+import kr.haebom.elder.family.SensitiveApps
 import kr.haebom.elder.family.Sensitivity
 import kr.haebom.elder.net.HaebomServer
+import kr.haebom.elder.ui.ElderUi
 
 /**
  * 접근성 서비스 본체. 화면이 바뀔 때마다(0.5초 묶음) 지금 상황을 판단해 세 가지 오버레이를 맞춥니다.
@@ -74,7 +77,7 @@ class GuideService : AccessibilityService() {
         FloatingGuideControls(
             context = this,
             onMicrophone = { onMicrophone() },
-            onSos = { openInput(sos = true) },
+            onSos = { openSos(activeScreenPackage()) },
             onStop = {
                 GuideSession.stop()
                 GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
@@ -96,11 +99,16 @@ class GuideService : AccessibilityService() {
         scheduleRefresh()
     }
     private val captionChanged: (GuideCaption.Message?) -> Unit = { renderCaption() }
+    /** 들은 말을 지금 앞 화면 기준으로 처리 (시험 진입점이 잠깐 앞에 왔다 사라지므로 조금 뒤에) */
+    private val spokenHook: (String) -> Unit = { text ->
+        handler.postDelayed({ handleSpoken(text, activeScreenPackage()) }, 700)
+    }
 
     override fun onServiceConnected() {
         connected = true
         GuideSession.onChange = sessionChanged
         GuideCaption.listener = captionChanged
+        SpokenCommandHook.handler = spokenHook
         DevScreenHook.sink?.onConnected(this)
         scheduleRefresh()
     }
@@ -589,12 +597,12 @@ class GuideService : AccessibilityService() {
             assessment.level.askFirst -> {
                 if (!settings.sensitiveAlerts || Family.gateway == null) return
                 if (!SensitiveAlerter.claim("ask:$pkg")) return
-                consentCard.show(pkg, appLabel(pkg), assessment.category)
+                ConsentPrompt.show(card, this, pkg, appLabel(pkg), assessment.category)
             }
         }
     }
 
-    private val consentCard by lazy { ConsentCard(this) }
+    private val card by lazy { OverlayCard(this) }
 
     // ───────────────────────── 오버레이 ─────────────────────────
 
@@ -633,7 +641,7 @@ class GuideService : AccessibilityService() {
         // 자막·버튼이 어두운 막 아래로 가지 않게 다시 위로
         captionHost?.let { reattachCaption() }
         floatingControls.bringToFront()
-        consentCard.bringToFront()
+        card.bringToFront()
     }
 
     private fun clearHighlight() {
@@ -678,7 +686,7 @@ class GuideService : AccessibilityService() {
         shownArrow = hint
         captionHost?.let { reattachCaption() }
         floatingControls.bringToFront()
-        consentCard.bringToFront()
+        card.bringToFront()
     }
 
     private fun clearArrow() {
@@ -747,7 +755,7 @@ class GuideService : AccessibilityService() {
             return
         }
         floatingControls.bringToFront()
-        consentCard.bringToFront()
+        card.bringToFront()
     }
 
     private fun reattachCaption() {
@@ -930,7 +938,10 @@ class GuideService : AccessibilityService() {
         if (announce) GuideCaption.post(getString(R.string.caption_listen_stopped), GuideCaption.Tone.INFO)
     }
 
-    /** 들은 말 처리: 바로 할 수 있는 일은 지금 화면에서, 확인 창이 필요한 일은 말하기 창으로 */
+    /**
+     * 들은 말 처리: 모두 지금 화면 그대로. 확인이 필요한 일(사기 의심·금융·비밀번호·정부24)도
+     * 해봄 앱 화면으로 넘어가지 않고 떠 있는 카드([OverlayCard])로 물음.
+     */
     private fun handleSpoken(spoken: String, foreground: String?) {
         val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
         // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
@@ -945,7 +956,34 @@ class GuideService : AccessibilityService() {
                 GuideCaption.heard(spoken)
                 GuideCaption.post(getString(R.string.caption_unrecognized), GuideCaption.Tone.WARN)
             }
-            CommandRoute.NeedsWindow -> openInput(sos = false, command = spoken, foreground = foreground)
+            is CommandRoute.Scam -> warnScam(route.assessment, foreground)
+            CommandRoute.Help -> openSos(foreground)
+            CommandRoute.Private -> {
+                GuideSession.stop()
+                GuideCaption.post(getString(R.string.caption_private), GuideCaption.Tone.WARN, durationMs = 10_000)
+                card.show(
+                    key = "private",
+                    title = getString(R.string.alert_private_title),
+                    message = getString(R.string.guide_authentication_stop),
+                    actions = listOf(OverlayCard.Action(getString(R.string.ok)) {}),
+                )
+            }
+            is CommandRoute.Finance -> warnFinance(spoken, route.assessment, foreground)
+            CommandRoute.Gov24 -> card.show(
+                key = "gov24",
+                title = getString(R.string.alert_gov24_title),
+                message = getString(R.string.guide_gov24_limited),
+                actions = listOf(
+                    OverlayCard.Action(getString(R.string.guide_continue)) {
+                        GuideCaption.post(
+                            getString(R.string.caption_heard_task, spoken, getString(GuideTask.GOV24.nextStepText())),
+                            GuideCaption.Tone.INFO,
+                        )
+                        kr.haebom.elder.launchGuide(this, GuideTask.GOV24, foreground, announce = false, null, spoken)
+                    },
+                    OverlayCard.Action(getString(R.string.cancel), ElderUi.Kind.QUIET) {},
+                ),
+            )
             CommandRoute.Ai -> {
                 GuideCaption.post(
                     getString(R.string.caption_heard_task, spoken, getString(R.string.caption_ai_started)),
@@ -960,6 +998,74 @@ class GuideService : AccessibilityService() {
                 )
                 kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
             }
+        }
+    }
+
+    /** L3 사기 의심: 묻지 않고 바로 보호자 알림, 안내 멈춤, 지금 화면 위에 경고 카드 */
+    private fun warnScam(assessment: Assessment, foreground: String?) {
+        GuideSession.stop()
+        GuideCaption.post(getString(R.string.alert_scam), GuideCaption.Tone.WARN, durationMs = 12_000)
+        val pkg = foreground?.takeIf { it != packageName }.orEmpty()
+        SensitiveAlerter.send(this, assessment, if (pkg.isEmpty()) "" else appLabel(pkg), pkg)
+        card.show(
+            key = "scam",
+            title = getString(R.string.alert_scam_title),
+            message = getString(R.string.alert_scam),
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.sos), ElderUi.Kind.DANGER) { openSos(foreground) },
+                OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {},
+            ),
+            accent = ElderUi.RED,
+        )
+    }
+
+    /** L2 금융: 막지 않음. 바로 보호자 알림(5분에 한 번) + 경고 카드, [계속하기]면 말한 은행 앱을 엶 */
+    private fun warnFinance(spoken: String, assessment: Assessment, foreground: String?) {
+        GuideSession.stop()
+        val bankPackage = Sensitivity.financeAppFor(spoken)?.takeIf { packageManager.getLaunchIntentForPackage(it) != null }
+        val target = bankPackage ?: foreground?.takeIf { SensitiveApps.category(it) == SensitiveApps.CATEGORY_FINANCE }
+        if (SensitiveAlerter.claim(SensitiveAlerter.keyFor(assessment, target))) {
+            SensitiveAlerter.send(this, assessment, target?.let(::appLabel).orEmpty(), target.orEmpty())
+        }
+        GuideCaption.post(getString(R.string.alert_finance_command), GuideCaption.Tone.WARN, durationMs = 10_000)
+        card.show(
+            key = "finance",
+            title = getString(R.string.alert_finance_title),
+            message = getString(R.string.alert_finance_command),
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.alert_continue)) {
+                    val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
+                    when {
+                        launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
+                    }
+                },
+                OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {},
+            ),
+            accent = ElderUi.RED,
+        )
+    }
+
+    /**
+     * 도움 요청 문자. 보호자 번호가 하나면 지금 화면에서 바로 문자 앱을 엶 (보내기는 어르신이 누름).
+     * 여러 명이라 고르거나 번호를 넣어야 하면 그때만 말하기 창의 SOS 화면을 엶.
+     */
+    private fun openSos(foreground: String?) {
+        GuideSession.stop()
+        val contacts = settings.sosContacts(Family.gateway?.links().orEmpty())
+        val single = contacts.singleOrNull()
+        if (single == null) {
+            openInput(sos = true, foreground = foreground)
+            return
+        }
+        GuideCaption.post(getString(R.string.caption_sos), GuideCaption.Tone.INFO)
+        val sms = Intent(Intent.ACTION_SENDTO, android.net.Uri.fromParts("smsto", ElderSettings.normalizePhone(single.phone), null))
+            .putExtra("sms_body", getString(R.string.sos_message))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(sms)
+        } catch (_: android.content.ActivityNotFoundException) {
+            GuideCaption.post(getString(R.string.sos_sms_unavailable), GuideCaption.Tone.WARN)
         }
     }
 
@@ -1003,12 +1109,13 @@ class GuideService : AccessibilityService() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun disconnect() {
-        consentCard.hide()
+        card.hide()
         stopListening(announce = false)
         if (connected) DevScreenHook.sink?.onDisconnected()
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
         if (GuideCaption.listener === captionChanged) GuideCaption.listener = null
+        if (SpokenCommandHook.handler === spokenHook) SpokenCommandHook.handler = null
         handler.removeCallbacksAndMessages(null)
         refreshScheduled = false
         floatingControls.hide()
