@@ -58,8 +58,10 @@ class FamilyActivity : Activity() {
         val codeCard = ElderUi.card(this, ElderUi.SOFT_BLUE, ElderUi.NAVY)
         codeDigits = ElderUi.text(this, "", 44f, ElderUi.NAVY_DARK, bold = true).apply {
             gravity = Gravity.CENTER
-            letterSpacing = 0.08f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            // 여섯 자리가 두 줄로 나뉘면 읽기 어려우므로 항상 한 줄 (좁은 화면에서는 글자를 줄임)
+            maxLines = 1
+            setAutoSizeTextTypeUniformWithConfiguration(24, 44, 2, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
         codeHelp = ElderUi.text(this, "", 20f, ElderUi.INK).apply { gravity = Gravity.CENTER }
         codeButton = ElderUi.button(this, getString(R.string.family_code_get)) { issueCode() }
