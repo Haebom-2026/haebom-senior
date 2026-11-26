@@ -29,6 +29,40 @@ class ServerLinksTest {
     }
 
     @Test
+    fun notifiedGuardiansUseLabelThenNameThenDefault() {
+        // S2 #6·#7·#8 의 201 응답 (b0a44d3)
+        val json = JSONObject(
+            """
+            { "result": "created", "notificationId": "n1", "guardianCount": 3, "guardians": [
+              { "guardianId": "g_1", "guardianLabel": "큰딸", "guardianName": "김수연" },
+              { "guardianId": "g_2", "guardianLabel": "", "guardianName": "이민호" },
+              { "guardianId": "g_3", "guardianLabel": "", "guardianName": "" }
+            ] }
+            """.trimIndent(),
+        )
+        assertEquals(listOf("큰딸", "이민호", FamilyLink.DEFAULT_GUARDIAN_LABEL), ServerFamilyGateway.notifiedLabels(json))
+    }
+
+    @Test
+    fun noGuardiansFieldGivesNoLabels() {
+        // 중복(duplicate_suppressed)·이전 서버 응답에는 guardians 가 없음 → 앱이 지금 목록으로 대신함
+        assertTrue(ServerFamilyGateway.notifiedLabels(JSONObject("""{ "result": "duplicate_suppressed" }""")).isEmpty())
+        assertTrue(ServerFamilyGateway.notifiedLabels(null).isEmpty())
+    }
+
+    @Test
+    fun parsesTheRenameReplyAsOneLink() {
+        // PATCH /v1/elder/links/{guardianId} 은 #18 항목 하나를 돌려줌
+        val item = JSONObject(
+            """{ "guardianId": "g_1", "guardianName": "김수연", "guardianLabel": "작은딸",
+                 "elderLabel": "어머니", "connectedAt": "2026-11-26T06:00:00.000Z" }""",
+        )
+        val link = ServerFamilyGateway.parseLink("e_1", item)
+        assertEquals("g_1", link.guardianId)
+        assertEquals("작은딸", link.labelForElder)
+    }
+
+    @Test
     fun missingOrEmptyListGivesNoLinks() {
         assertTrue(ServerFamilyGateway.parseLinks("e", null).isEmpty())
         assertTrue(ServerFamilyGateway.parseLinks("e", JSONObject("{}")).isEmpty())

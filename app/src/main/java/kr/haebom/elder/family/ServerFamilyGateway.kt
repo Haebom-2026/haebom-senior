@@ -20,7 +20,8 @@ import java.util.concurrent.TimeUnit
  *   #11 POST   /v1/elder/connect-codes       연결 코드
  *   #12 DELETE /v1/elder/links/{guardianId}  고령자 쪽 해제
  *   #18 GET    /v1/elder/links               연결된 보호자 목록
- *   #6  POST   /v1/elder/sensitive-entries   민감 앱 알림 (S2, 서버 배포 전이면 실패로 안내)
+ *        PATCH  /v1/elder/links/{guardianId}  고령자가 부르는 보호자 호칭(guardianLabel) 바꾸기
+ *   #6  POST   /v1/elder/sensitive-entries   민감 앱 알림 (S2). 201 의 guardians 로 "{보호자}에게 알렸어요"
  * 연결이 바뀌면 서버가 FCM data { kind: "link" } 를 보내고, [HaebomMessagingService] 가 [refresh] 를 부릅니다.
  */
 internal class ServerFamilyGateway(
@@ -99,10 +100,22 @@ internal class ServerFamilyGateway(
     }
 
     override fun renameGuardian(guardianId: String, label: String, done: (Boolean) -> Unit) {
-        // 서버에 고령자 쪽 호칭 변경 API 가 아직 없어 폰에 저장 (서버에 요청해 둠)
-        settings.setLabelOverride(guardianId, label)
-        notifyListeners()
-        main.post { done(true) }
+        val clean = label.trim().take(MAX_LABEL)
+        io.execute {
+            val body = JSONObject().put("guardianLabel", clean).toString()
+            val reply = api.call("PATCH", "/v1/elder/links/$guardianId", body)
+            Log.d(TAG, "호칭 변경 → ${reply.code} ${reply.reason.orEmpty()}")
+            val updated = reply.json()?.takeIf { reply.ok }?.let { parseLink(api.uid().orEmpty(), it) }
+            main.post {
+                if (updated != null) {
+                    // 서버에 저장됨: 예전에 폰에만 저장해 둔 호칭은 지움 (서버 값이 기준)
+                    settings.setLabelOverride(guardianId, "")
+                    cached = cached.map { if (it.guardianId == guardianId) updated else it }
+                    notifyListeners()
+                }
+                done(updated != null)
+            }
+        }
     }
 
     override fun disconnect(guardianId: String, releaseCode: String, done: (DisconnectResult) -> Unit) {
@@ -140,8 +153,10 @@ internal class ServerFamilyGateway(
                 .put("category", category).put("level", level).put("reason", reason)
                 .toString()
             val reply = api.call("POST", "/v1/elder/sensitive-entries", body, UUID.randomUUID().toString())
-            val labels = links().map { it.labelForElder }
-            val outcome = when (reply.json()?.optString("result")) {
+            val json = reply.json()
+            // 201 은 알림을 받은 보호자(guardians)를 같이 줌. 없으면(이전 서버·중복) 지금 목록의 호칭
+            val labels = notifiedLabels(json).ifEmpty { links().map { it.labelForElder } }
+            val outcome = when (json?.optString("result")) {
                 "created" -> NoticeOutcome(NoticeResult.CREATED, labels)
                 "duplicate_suppressed" -> NoticeOutcome(NoticeResult.DUPLICATE_SUPPRESSED, labels)
                 "no_guardians" -> NoticeOutcome(NoticeResult.NO_GUARDIANS)
@@ -176,22 +191,40 @@ internal class ServerFamilyGateway(
 
     companion object {
         private const val TAG = "HaebomFamily"
+        private const val MAX_LABEL = 20
+
+        /** #6·#7·#8 의 201 `guardians` → 어르신이 부르는 호칭 목록 (guardianLabel → guardianName → "보호자") */
+        fun notifiedLabels(json: JSONObject?): List<String> {
+            val array = json?.optJSONArray("guardians") ?: return emptyList()
+            return (0 until array.length()).map { i ->
+                val item = array.getJSONObject(i)
+                FamilyLink(
+                    elderId = "",
+                    guardianId = item.optString("guardianId"),
+                    elderName = "",
+                    elderLabel = null,
+                    guardianLabel = item.optString("guardianLabel").ifEmpty { null },
+                    connectedAt = 0L,
+                    guardianName = item.optString("guardianName").ifEmpty { null },
+                ).labelForElder
+            }
+        }
 
         /** #18 응답 → FamilyLink 목록 (서버 시각은 ISO 8601) */
         fun parseLinks(elderId: String, json: JSONObject?): List<FamilyLink> {
             val array = json?.optJSONArray("links") ?: return emptyList()
-            return (0 until array.length()).map { i ->
-                val item = array.getJSONObject(i)
-                FamilyLink(
-                    elderId = elderId,
-                    guardianId = item.getString("guardianId"),
-                    elderName = "",
-                    elderLabel = item.optString("elderLabel").ifEmpty { null },
-                    guardianLabel = item.optString("guardianLabel").ifEmpty { null },
-                    connectedAt = runCatching { Instant.parse(item.getString("connectedAt")).toEpochMilli() }.getOrDefault(0L),
-                    guardianName = item.optString("guardianName").ifEmpty { null },
-                )
-            }
+            return (0 until array.length()).map { i -> parseLink(elderId, array.getJSONObject(i)) }
         }
+
+        /** #18 항목 하나 (호칭 변경 PATCH 응답도 같은 모양) */
+        fun parseLink(elderId: String, item: JSONObject): FamilyLink = FamilyLink(
+            elderId = elderId,
+            guardianId = item.getString("guardianId"),
+            elderName = "",
+            elderLabel = item.optString("elderLabel").ifEmpty { null },
+            guardianLabel = item.optString("guardianLabel").ifEmpty { null },
+            connectedAt = runCatching { Instant.parse(item.getString("connectedAt")).toEpochMilli() }.getOrDefault(0L),
+            guardianName = item.optString("guardianName").ifEmpty { null },
+        )
     }
 }
