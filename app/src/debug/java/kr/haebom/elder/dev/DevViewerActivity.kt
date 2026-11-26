@@ -67,6 +67,7 @@ class DevViewerActivity : Activity() {
             "전송기를 찾지 못했어요."
         } else {
             "기기 ID: ${client.deviceId}\n" +
+                "서버: ${DevViewerClient.API_BASE}\n" +
                 "화면 안내 서비스: ${if (client.serviceConnected) "켜짐" else "꺼짐 (접근성에서 켜야 보내요)"}\n" +
                 "heartbeat: ${client.lastHeartbeat}\n" +
                 "화면: ${client.lastScreen}"

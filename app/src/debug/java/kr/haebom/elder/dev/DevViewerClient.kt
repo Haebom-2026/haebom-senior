@@ -70,25 +70,37 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
         val body = capture(current)
         if (body == null) {
             lastScreen = "보내지 않음: 비밀번호·인증·금융 화면이거나 읽을 수 없는 화면 (${now()})"
+            Log.d(TAG, "화면 전송 안 함 (보호 화면 또는 읽기 실패)")
             return@Runnable
         }
-        io.execute { lastScreen = describe(post("/v1/dev/screens", body)) }
+        io.execute {
+            val result = post("/v1/dev/screens", body)
+            lastScreen = describe(result)
+            Log.d(TAG, "화면 전송 → $result")
+        }
     }
 
     override fun onConnected(service: AccessibilityService) {
+        Log.d(TAG, "접근성 연결됨 (client=${System.identityHashCode(this)})")
         this.service = service
         main.removeCallbacks(heartbeatLoop)
         if (enabled) main.post(heartbeatLoop)
     }
 
     override fun onScreenChanged(service: AccessibilityService) {
+        if (this.service == null) {
+            Log.d(TAG, "화면 이벤트로 접근성 연결 확인 (client=${System.identityHashCode(this)})")
+            this.service = service
+            main.removeCallbacks(heartbeatLoop)
+            if (enabled) main.post(heartbeatLoop)
+        }
         if (!enabled) return
-        this.service = service
         main.removeCallbacks(sendScreen)
         main.postDelayed(sendScreen, DEBOUNCE_MS)
     }
 
     override fun onDisconnected() {
+        Log.d(TAG, "접근성 끊김 (client=${System.identityHashCode(this)})")
         service = null
         main.removeCallbacks(heartbeatLoop)
         main.removeCallbacks(sendScreen)
@@ -202,7 +214,7 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
 
     companion object {
         /** dev 환경 API Gateway. release 빌드에는 이 코드가 없습니다 */
-        const val API_BASE = "https://9a2sj8hqlb.execute-api.ap-northeast-2.amazonaws.com"
+        const val API_BASE = "https://qq829otaql.execute-api.ap-northeast-2.amazonaws.com"
         const val VIEWER_URL = "https://d3jcc37k40jy8z.cloudfront.net"
         private const val TAG = "HaebomDevViewer"
         private const val KEY_ENABLED = "enabled"
