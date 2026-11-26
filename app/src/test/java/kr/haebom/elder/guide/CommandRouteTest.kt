@@ -114,4 +114,13 @@ class CommandRouteTest {
         assertEquals(CommandRoute.OpenApp("유튜브"), CommandRoute.of("유튜브 켜 줘", null, aiAvailable = true))
         assertTrue(CommandRoute.of("그만 보고 카카오톡 열어 줘", null, aiAvailable = true) != CommandRoute.Stop)
     }
+
+    @Test
+    fun mentioningASiteIsNotASearchUnlessAskedToFind() {
+        assertEquals(CommandRoute.Ai, CommandRoute.of("네이버에 로그인하게 도와줘", null, aiAvailable = true))
+        assertEquals(
+            CommandRoute.WebSearch(Search.Web("오늘 날씨", Search.Engine.NAVER)),
+            CommandRoute.of("네이버에서 오늘 날씨 알려 줘", null, aiAvailable = true),
+        )
+    }
 }

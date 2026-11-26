@@ -36,6 +36,8 @@ internal object Search {
         val normalized = GuideTask.normalize(command)
         val mentionsWeb = listOf("인터넷", "네이버", "구글", "google", "naver", "포털", "검색창").any { it in normalized }
         if (!mentionsWeb) return null
+        // 찾아 달라는 말이 있어야 검색: "네이버에 로그인하게 도와줘" 는 검색이 아니라 AI 안내
+        if (WATCH_VERBS.none { it in normalized } && KNOW_VERBS.none { it in normalized }) return null
         val engine = if ("구글" in normalized || "google" in normalized) Engine.GOOGLE else Engine.NAVER
         return clean(command, WEB_APPS)?.let { Web(it, engine) }
     }
