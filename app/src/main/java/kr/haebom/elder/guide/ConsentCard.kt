@@ -2,12 +2,9 @@ package kr.haebom.elder.guide
 
 import android.content.Context
 import android.graphics.PixelFormat
-import android.os.Handler
-import android.os.Looper
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.LinearLayout
-import android.widget.TextView
 import kr.haebom.elder.R
 import kr.haebom.elder.family.Assessment
 import kr.haebom.elder.family.Family
@@ -25,7 +22,6 @@ import kr.haebom.elder.ui.ElderUi
  */
 internal class ConsentCard(private val context: Context) {
     private val manager = context.getSystemService(WindowManager::class.java)
-    private val handler = Handler(Looper.getMainLooper())
     private var view: LinearLayout? = null
     private var shownFor: String? = null
 
@@ -42,30 +38,25 @@ internal class ConsentCard(private val context: Context) {
             elevation = ElderUi.dp(context, 12).toFloat()
         }
         card.addView(ElderUi.text(context, "🔒 $appName", 28f, ElderUi.INK, bold = true))
-        val message: TextView = ElderUi.text(context, context.getString(R.string.consent_question), 25f, ElderUi.INK)
-        card.addView(message)
+        card.addView(ElderUi.text(context, context.getString(R.string.consent_question), 25f, ElderUi.INK))
         card.addView(ElderUi.text(context, context.getString(R.string.consent_detail), 21f, ElderUi.MUTED))
         val buttons = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        fun finish(text: String, tone: GuideCaption.Tone) {
-            for (i in 0 until buttons.childCount) buttons.getChildAt(i).isEnabled = false
-            message.text = text
-            GuideCaption.post(text, tone)
-            handler.postDelayed({ if (view?.getChildAt(0) === card) hide() }, CLOSE_DELAY_MS)
-        }
+        // 누르면 카드는 바로 닫고, 결과는 큰 자막으로만 알림 (카드 안 글자를 바꾸지 않음)
         buttons.addView(ElderUi.button(context, context.getString(R.string.consent_yes)) {
+            hide()
             if (Family.gateway == null) {
-                finish(context.getString(R.string.consent_unavailable), GuideCaption.Tone.WARN)
+                GuideCaption.post(context.getString(R.string.consent_unavailable), GuideCaption.Tone.WARN)
                 return@button
             }
-            for (i in 0 until buttons.childCount) buttons.getChildAt(i).isEnabled = false
+            GuideCaption.post(context.getString(R.string.consent_sending), GuideCaption.Tone.INFO)
             val assessment = Sensitivity.fromApp(packageName).takeIf { it.level != Level.L0 }
                 ?: Assessment(Level.L1, category, "공공 민원 앱 사용")
-            SensitiveAlerter.send(
-                context, assessment.copy(reason = assessment.reason + " (어르신 동의)"), appName, packageName,
-            ) { text -> finish(text, GuideCaption.Tone.INFO) }
+            // 결과 문장("○○ 님에게 알렸어요" 등)은 SensitiveAlerter 가 자막에 띄움
+            SensitiveAlerter.send(context, assessment.copy(reason = assessment.reason + " (어르신 동의)"), appName, packageName)
         })
         buttons.addView(ElderUi.button(context, context.getString(R.string.consent_no), ElderUi.Kind.QUIET) {
-            finish(context.getString(R.string.consent_declined), GuideCaption.Tone.INFO)
+            hide()
+            GuideCaption.post(context.getString(R.string.consent_declined), GuideCaption.Tone.INFO)
         })
         card.addView(buttons)
 
@@ -95,7 +86,6 @@ internal class ConsentCard(private val context: Context) {
     }
 
     fun hide() {
-        handler.removeCallbacksAndMessages(null)
         val current = view ?: return
         view = null
         shownFor = null
@@ -113,9 +103,5 @@ internal class ConsentCard(private val context: Context) {
             view = null
             shownFor = null
         }
-    }
-
-    private companion object {
-        const val CLOSE_DELAY_MS = 2_500L
     }
 }
