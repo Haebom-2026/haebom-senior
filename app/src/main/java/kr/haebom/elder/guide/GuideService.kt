@@ -269,8 +269,6 @@ class GuideService : AccessibilityService() {
         }
         if (active == null || foreground == null) return Decision(null, null)
         if (foreground in PASS_THROUGH) return Decision(highlightedTarget, guideMessage)
-        // 멈춘 동안: 표시를 모두 숨기고 AI 도 부르지 않음
-        if (active.paused) return Decision(null, getString(R.string.caption_guide_paused) to GuideCaption.Tone.INFO)
 
         val task = active.task
         val taskPackage = active.packageName
@@ -361,6 +359,8 @@ class GuideService : AccessibilityService() {
     private var aiFailedFingerprint: String? = null
     private var aiFailedSay: String? = null
     private val aiHistory = ArrayDeque<String>()
+    /** AI 가 방금 되물었음 ("어떤 영상을 찾을까요?"): 다음에 들은 말은 그 대답으로 이어 감 */
+    private var aiAsked = false
     private var aiDoneScheduled = false
     /** 밀기 안내 중 찾는 글자 (화면에 나타나면 서버를 다시 부르지 않고 바로 짚음) */
     private var aiSeek: String? = null
@@ -376,6 +376,7 @@ class GuideService : AccessibilityService() {
         aiFailedSay = null
         aiHistory.clear()
         aiDoneScheduled = false
+        aiAsked = false
         aiSeek = null
         aiSeekFoundOn = null
         aiLastSwipe = null
@@ -457,9 +458,12 @@ class GuideService : AccessibilityService() {
         if (aiPending?.requestId != requestId) return
         aiPending = null
         val reply = (outcome as? AiOutcome.Reply)?.reply
-        if (reply == null || reply.isFallback) {
+        val knownTask = GuideSession.active?.task != null
+        aiAsked = reply?.type == AiReply.ASK && !knownTask
+        if (reply == null || reply.isFallback || (reply.type == AiReply.ASK && knownTask)) {
+            // 앱이 아는 일인데 AI 가 되묻기만 하면(예: 정부24 "무엇을 도와드릴까요?") 앱의 안내로 계속
             aiFailedFingerprint = fingerprint
-            aiFailedSay = reply?.say
+            aiFailedSay = reply?.say?.takeUnless { reply.type == AiReply.ASK }
         } else {
             aiAnswer = fingerprint to reply
             if (reply.say.isNotBlank() && aiHistory.lastOrNull() != reply.say) {
@@ -828,8 +832,7 @@ class GuideService : AccessibilityService() {
             when {
                 listener.isListening -> FloatingGuideControls.MicMode.LISTENING
                 active == null -> FloatingGuideControls.MicMode.SPEAK
-                active.paused -> FloatingGuideControls.MicMode.RESUME
-                else -> FloatingGuideControls.MicMode.PAUSE
+                else -> FloatingGuideControls.MicMode.SPEAK_AGAIN
             },
         )
     }
@@ -843,17 +846,6 @@ class GuideService : AccessibilityService() {
     private fun onMicrophone() {
         if (listener.isListening) {
             stopListening(announce = true)
-            return
-        }
-        val active = GuideSession.active
-        if (active != null) {
-            val pause = !active.paused
-            GuideSession.setPaused(pause)
-            syncMicMode()
-            GuideCaption.post(
-                getString(if (pause) R.string.caption_guide_paused else R.string.caption_guide_resumed_now),
-                GuideCaption.Tone.INFO,
-            )
             return
         }
         val foreground = activeScreenPackage()
@@ -904,7 +896,14 @@ class GuideService : AccessibilityService() {
 
     /** 들은 말 처리: 바로 할 수 있는 일은 지금 화면에서, 확인 창이 필요한 일은 말하기 창으로 */
     private fun handleSpoken(spoken: String, foreground: String?) {
-        when (val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)) {
+        val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
+        // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
+        if (GuideSession.active != null && aiAsked && (route == CommandRoute.Ai || route == CommandRoute.Unrecognized)) {
+            GuideCaption.post(getString(R.string.caption_answer_taken, spoken), GuideCaption.Tone.INFO)
+            GuideSession.answer(spoken)
+            return
+        }
+        when (route) {
             CommandRoute.Empty -> GuideCaption.post(getString(R.string.caption_no_speech), GuideCaption.Tone.WARN)
             CommandRoute.Unrecognized -> {
                 GuideCaption.heard(spoken)

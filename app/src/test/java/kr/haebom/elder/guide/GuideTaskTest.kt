@@ -98,16 +98,20 @@ class GuideTaskTest {
     }
 
     @Test
-    fun pauseKeepsTheSessionAndSerialMarksNewSessions() {
-        GuideSession.start(GuideTask.YOUTUBE, "com.google.android.youtube", "임영웅")
+    fun answerContinuesTheSameGuideAndSerialMarksNewSteps() {
+        // 단추로 시작하면 AI 에 할 일을 분명히 보냄 (되묻지 않게)
+        GuideSession.start(GuideTask.GOV24, "kr.go.minwon.m")
+        assertTrue("등본" in GuideSession.active!!.utterance)
+        assertEquals("주민등록표 등본(초본) 발급", GuideSession.active!!.slots["service"])
+
+        GuideSession.start(GuideTask.YOUTUBE, "com.google.android.youtube")
         val serial = GuideSession.serial
-        GuideSession.setPaused(true)
-        assertTrue(GuideSession.active!!.paused)
+        // AI: "어떤 영상을 찾을까요?" → "임영웅"
+        GuideSession.answer("임영웅")
         assertEquals("임영웅", GuideSession.active!!.query)
-        GuideSession.setPaused(false)
-        assertFalse(GuideSession.active!!.paused)
-        assertEquals(serial, GuideSession.serial)
-        GuideSession.startAi("카카오톡 열어 줘", "OPEN_APP", mapOf("app" to "카카오톡"))
+        assertEquals("임영웅", GuideSession.active!!.slots["query"])
+        assertFalse(GuideSession.active!!.queryFilled)
+        assertTrue(GuideSession.active!!.utterance.endsWith("/ 임영웅"))
         assertTrue(GuideSession.serial > serial)
         GuideSession.stop()
     }

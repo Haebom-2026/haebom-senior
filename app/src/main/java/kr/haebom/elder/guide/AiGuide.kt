@@ -34,6 +34,7 @@ internal data class AiReply(
         const val SWIPE = "swipe"
         const val SAY = "say"
         const val DONE = "done"
+        const val ASK = "ask"
 
         private val FALLBACK_PREFIXES = listOf("서버가 잠시 바빠요", "제가 화면을 잘 못 알아봤어요", "지금 화면을 읽지 못했어요")
 

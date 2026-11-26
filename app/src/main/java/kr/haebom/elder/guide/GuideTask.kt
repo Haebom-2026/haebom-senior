@@ -55,6 +55,22 @@ internal enum class GuideTask(val appPackage: String?) {
             GOV24 -> "GOV24"
         }
 
+    /**
+     * 단추로 시작해 말한 문장이 없을 때 AI 에 보내는 할 일 (비어 있으면 AI 가 "무엇을 할까요?" 하고 되묻기만 함)
+     */
+    fun defaultUtterance(query: String?): String = when (this) {
+        CONTACTS -> "새 연락처를 추가해 줘"
+        YOUTUBE -> if (query != null) "유튜브에서 $query 검색해 줘" else "유튜브에서 영상을 검색하게 도와줘"
+        GOV24 -> "정부24에서 주민등록표 등본 발급 메뉴까지 가게 도와줘. 본인인증은 내가 직접 할게"
+    }
+
+    /** AI 에 보내는 slots (할 일을 분명히) */
+    fun defaultSlots(query: String?): Map<String, String> = when (this) {
+        CONTACTS -> mapOf("action" to "연락처 추가")
+        YOUTUBE -> query?.let { mapOf("query" to it) }.orEmpty()
+        GOV24 -> mapOf("service" to "주민등록표 등본(초본) 발급")
+    }
+
     /** 해봄이 검색어를 대신 넣어 줄 수 있는 입력 칸 (resource id 끝부분) */
     val searchFieldIds: Set<String>
         get() = if (this == YOUTUBE) setOf("search_edit_text") else emptySet()

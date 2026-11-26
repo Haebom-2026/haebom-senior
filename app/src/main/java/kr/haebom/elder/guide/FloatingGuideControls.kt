@@ -158,13 +158,12 @@ internal class FloatingGuideControls(
     }
 
     /** 마이크 단추가 지금 하는 일 */
-    enum class MicMode { SPEAK, LISTENING, PAUSE, RESUME }
+    enum class MicMode { SPEAK, SPEAK_AGAIN, LISTENING }
 
     /**
      * - SPEAK: 🎤 말하기 (누르면 지금 화면 그대로 듣기)
+     * - SPEAK_AGAIN: 🎤 다시 말하기 (안내 중. 새로 말하거나 AI 의 물음에 대답)
      * - LISTENING: ⏹ 종료 (누르면 듣기를 그만둠)
-     * - PAUSE: ⏸ 멈추기 (안내 중. 누르면 안내를 잠시 멈춤)
-     * - RESUME: ▶ 이어서 (멈춘 안내를 다시 시작)
      */
     fun setMicMode(mode: MicMode) {
         if (micMode == mode) return
@@ -177,8 +176,7 @@ internal class FloatingGuideControls(
         val (icon, label, description, color) = when (micMode) {
             MicMode.SPEAK -> MicLook("🎤", R.string.floating_mic, R.string.floating_mic_description, MIC_COLOR)
             MicMode.LISTENING -> MicLook("⏹", R.string.floating_listen_stop, R.string.floating_listen_stop_description, LISTENING_COLOR)
-            MicMode.PAUSE -> MicLook("⏸", R.string.floating_pause, R.string.floating_pause_description, PAUSE_COLOR)
-            MicMode.RESUME -> MicLook("▶", R.string.floating_resume, R.string.floating_resume_description, RESUME_COLOR)
+            MicMode.SPEAK_AGAIN -> MicLook("🎤", R.string.floating_speak_again, R.string.floating_speak_again_description, SPEAK_AGAIN_COLOR)
         }
         button.text = icon + "\n" + context.getString(label)
         button.contentDescription = context.getString(description)
@@ -248,7 +246,7 @@ internal class FloatingGuideControls(
     }
 
     private fun applyPulse() {
-        val moving = micMode == MicMode.LISTENING || micMode == MicMode.PAUSE
+        val moving = micMode == MicMode.LISTENING || micMode == MicMode.SPEAK_AGAIN
         if (moving && panel != null && ValueAnimator.areAnimatorsEnabled()) {
             if (!pulse.isRunning) pulse.start()
         } else {
@@ -343,9 +341,7 @@ internal class FloatingGuideControls(
         val MIC_COLOR = Color.rgb(30, 76, 156)
         /** 듣는 중: 눈에 띄는 주황 */
         val LISTENING_COLOR = Color.rgb(214, 92, 0)
-        /** 안내 중 멈추기: 짙은 남색 */
-        val PAUSE_COLOR = Color.rgb(40, 52, 120)
-        /** 멈춤 → 이어서: 초록 */
-        val RESUME_COLOR = Color.rgb(20, 128, 60)
+        /** 안내 중 다시 말하기: 초록 */
+        val SPEAK_AGAIN_COLOR = Color.rgb(20, 128, 60)
     }
 }
