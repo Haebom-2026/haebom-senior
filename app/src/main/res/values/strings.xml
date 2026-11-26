@@ -232,6 +232,16 @@
     <string name="confirm_yes">예, 해 주세요</string>
     <string name="confirm_no">아니요</string>
     <string name="caption_sensitive_done">입력하셨네요. 이어서 안내할게요.</string>
+    <!-- 로그인·인증 화면 안내 (AuthGuide). 비밀 칸은 해봄이 보지도 넣지도 않음 -->
+    <string name="auth_choose_method">로그인 방법을 고르는 화면이에요. 평소 쓰시는 방법을 직접 골라 눌러 주세요: %1$s</string>
+    <string name="auth_start">‘%1$s’를 눌러 로그인을 시작하세요.</string>
+    <string name="auth_type_field">‘%1$s’ 칸을 눌러 직접 써 주세요.</string>
+    <string name="auth_type_secret">‘%1$s’ 칸이에요. 이 칸은 해봄이 보지 않아요. 칸을 눌러 직접 입력해 주세요.</string>
+    <string name="auth_agree">내용을 확인하시고 동의하시면 ‘%1$s’를 눌러 주세요.</string>
+    <string name="auth_submit">다 입력하셨어요. ‘%1$s’를 누르세요.</string>
+    <string name="auth_check_fields">아직 빈 칸이나 고를 것이 남아 있어요. 다 채우면 ‘%1$s’를 누를 수 있어요.</string>
+    <string name="auth_confirm_on_phone">휴대폰에 온 알림(카카오톡·문자 등)을 열어 인증을 마친 뒤, 돌아와서 ‘%1$s’를 누르세요.</string>
+    <string name="auth_confirm_on_phone_wait">휴대폰에 온 알림(카카오톡·문자 등)을 열어 인증을 마쳐 주세요. 끝나면 이 화면으로 돌아오세요.</string>
     <string name="caption_finance_guide">은행 앱 화면을 보면서 안내할게요. 비밀번호와 인증은 직접 입력해 주세요. 입력이 끝나면 이어서 안내할게요.</string>
     <string name="choice_where">‘%1$s’을(를) 어디서 찾아 드릴까요?</string>
     <string name="choice_where_spoken">‘%1$s’을(를) 어디서 찾을까요? %2$s 하려면 ‘네’라고 해 주세요.</string>
@@ -242,6 +252,7 @@
     <string name="caption_map_search">‘%1$s’을(를) 지도에서 찾았어요. 가까운 곳부터 보여요.</string>
     <string name="ask_title">💬 여쭤볼게요</string>
     <string name="ask_unknown">모르겠어요</string>
+    <string name="ask_open_hint">마이크를 누르고 말로 대답해 주세요.</string>
     <string name="history_elder_answer">어르신 답: %1$s</string>
     <string name="confirm_not_heard">대답을 못 들었어요. 카드의 ‘예’나 ‘아니요’를 눌러 주세요.</string>
     <string name="confirm_declined">알겠어요. 다시 말하려면 말하기 단추를 눌러 주세요.</string>

@@ -317,9 +317,10 @@ class GuideService : AccessibilityService() {
         if (captured?.blocked == true || screen?.hasPasswordField == true ||
             step?.caption == R.string.guide_authentication_stop
         ) {
-            // 민감 정보는 직접: 표시·AI 없이 잠깐 멈춤 (안내는 끝내지 않음)
+            // 민감 정보는 직접: 서버로 보내지 않고, 앱 안에서 로그인·인증 순서만 짚어 드림 (안내는 끝내지 않음)
             noTargetSince = 0L
             sensitivePaused = true
+            captured?.let { authDecision(it, windowId, foreground) }?.let { return it }
             return Decision(null, getString(R.string.guide_authentication_stop) to GuideCaption.Tone.WARN)
         }
         if (sensitivePaused) {
@@ -626,8 +627,8 @@ class GuideService : AccessibilityService() {
                 }
             }
             AiReply.ASK -> {
-                // (v4) 답 단추 + "모르겠어요". 말로 대답해도 됨
-                if (reply.options.isNotEmpty()) showAskOptions(reply)
+                // (v4) 답 단추 + "모르겠어요" (서버 S5 6장: 열린 질문에도 "모르겠어요" 는 항상). 말로 대답해도 됨
+                showAskOptions(reply)
                 Decision(null, say to GuideCaption.Tone.GUIDE)
             }
             // 말 안내: "홈으로 가세요" → 홈 화살표, "뒤로 가세요" → 뒤로 화살표
@@ -644,6 +645,8 @@ class GuideService : AccessibilityService() {
             key = "ask:${reply.requestId}",
             title = getString(R.string.ask_title),
             message = reply.say,
+            // 고를 답이 없는 열린 질문: 말로 대답
+            detail = if (reply.options.isEmpty()) getString(R.string.ask_open_hint) else null,
             actions = askOptions.mapIndexed { index, option ->
                 OverlayCard.Action(option, if (index == 0) ElderUi.Kind.PRIMARY else ElderUi.Kind.SECONDARY) {
                     stopListening(announce = false)
@@ -667,6 +670,29 @@ class GuideService : AccessibilityService() {
         while (aiHistory.size > ScreenPayload.MAX_HISTORY) aiHistory.removeFirst()
     }
 
+    /**
+     * 로그인·인증 화면 안내 ([AuthGuide]). 비밀 칸은 짚기만 하고 "직접 입력", 해봄이 대신 넣지 않음.
+     * 안내할 것을 못 찾으면 null (예전처럼 "직접 해 주세요")
+     */
+    private fun authDecision(captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
+        val step = AuthGuide.step(captured.nodes) ?: return null
+        // 단계와 이름표(예: '비밀번호', '간편인증')만 남김. 칸의 글자는 원래 갖고 있지 않음
+        android.util.Log.i("HaebomGuide", "로그인 안내: ${step.kind} '${step.arg}' 짚음=${step.target != null}")
+        val say = when (step.kind) {
+            AuthGuide.Kind.CHOOSE_METHOD -> getString(R.string.auth_choose_method, step.arg)
+            AuthGuide.Kind.START -> getString(R.string.auth_start, step.arg)
+            AuthGuide.Kind.TYPE_FIELD -> getString(R.string.auth_type_field, step.arg)
+            AuthGuide.Kind.TYPE_SECRET -> getString(R.string.auth_type_secret, step.arg)
+            AuthGuide.Kind.AGREE -> getString(R.string.auth_agree, step.arg)
+            AuthGuide.Kind.SUBMIT -> getString(R.string.auth_submit, step.arg)
+            AuthGuide.Kind.CHECK_FIELDS -> getString(R.string.auth_check_fields, step.arg)
+            AuthGuide.Kind.CONFIRM_ON_PHONE ->
+                if (step.arg.isEmpty()) getString(R.string.auth_confirm_on_phone_wait) else getString(R.string.auth_confirm_on_phone, step.arg)
+        }
+        val b = step.target?.bounds ?: return Decision(null, say to GuideCaption.Tone.GUIDE)
+        return Decision(Target(windowId, foreground, Rect(b[0], b[1], b[2], b[3]), text = say), say to GuideCaption.Tone.GUIDE)
+    }
+
     private data class ScreenRead(val local: GuideScreen?, val captured: CapturedScreen?, val windowId: Int)
 
     /** 로컬 안내용 단추 목록(아는 일일 때)과 AI 로 보낼 화면을 한 번에 읽음 */
@@ -676,7 +702,8 @@ class GuideService : AccessibilityService() {
         return try {
             ScreenRead(
                 local = task?.let { GuideScreen.read(root, it, extraLabels) },
-                captured = if (ai != null) CapturedScreen.read(root) else null,
+                // 서버가 없어도 읽음: 로그인·인증 안내는 앱 안에서 함 (서버로 보내는지는 따로 정함)
+                captured = CapturedScreen.read(root),
                 windowId = root.windowId,
             )
         } finally {

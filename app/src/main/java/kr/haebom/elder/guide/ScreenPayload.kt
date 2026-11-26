@@ -23,6 +23,11 @@ internal data class ScreenNode(
     val enabled: Boolean = true,
     /** 지금 커서가 있는 칸 */
     val focused: Boolean = false,
+    /**
+     * 비밀번호·인증번호·계좌번호처럼 어르신만 넣는 칸. 글자는 담지 않고 자리와 [filled] 만 앎.
+     * 이런 칸이 있는 화면은 서버로 보내지 않음([CapturedScreen.blocked]). 앱 안 안내([AuthGuide])에만 씀
+     */
+    val secret: Boolean = false,
 )
 
 internal object ScreenPayload {
@@ -109,7 +114,9 @@ internal object ScreenPayload {
     private fun node(index: Int, node: ScreenNode): String {
         val fields = mutableListOf("\"i\":$index")
         // 입력 칸에 적힌 글자는 보내지 않습니다 (어르신이 입력한 내용)
-        if (node.editable) {
+        if (node.secret) {
+            // 비밀 칸: 글자·이름표 없이 자리만 (원래 이런 화면은 보내지 않음. 혹시 와도 내용은 없음)
+        } else if (node.editable) {
             // 입력 칸: 채워져 있으면 그 값을 보냄 (AI 가 입력을 마쳤는지·맞는지 보고 다음 단계로 넘어가게).
             // 비어 있으면 칸 이름(힌트)만. 비밀번호 칸과 민감한 이름표가 붙은 칸은 화면째 보내지 않음
             // (ScreenCapture·SensitiveText). 전화·계좌·카드·주민번호 숫자는 서버가 *** 로 가림
