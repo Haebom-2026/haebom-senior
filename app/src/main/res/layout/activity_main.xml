@@ -98,5 +98,21 @@
             android:text="@string/open_mock_guardian"
             android:textSize="18sp"
             android:visibility="gone" />
+        <Button
+            android:id="@+id/check_firebase"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/firebase_check"
+            android:textSize="18sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/firebase_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:accessibilityLiveRegion="polite"
+            android:textSize="16sp"
+            android:visibility="gone" />
     </LinearLayout>
 </ScrollView>

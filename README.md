@@ -35,3 +35,9 @@ Windows에서는 `gradlew.bat :app:assembleDebug`를 사용합니다. 빌드 결
 ## 보호자 연동 Mock
 
 디버그 APK의 **보호자 연동 연습 (Mock)**에서 연결 코드, 보호자 A·B 연결과 해제, 정부24 안내 승인·거절을 확인할 수 있습니다. 팀 공통 데이터 예시는 [보호자 앱 연동 Mock 규격](docs/guardian-mock-contract.md)에 있습니다.
+
+## Firebase 시험 연결
+
+Firebase 프로젝트 `copilot-demo-c9a74`에서 패키지 `kr.haebom.elder`에 등록된 Android 앱의 `google-services.json`을 `app/`에 놓습니다. 파일이 있으면 Google Services 플러그인이 연결 설정을 생성합니다. 이 파일은 Git에서 제외되어 있습니다.
+
+Firebase Authentication의 **익명** 로그인 제공업체가 켜진 환경에서, 디버그 앱 하단의 **Firebase 연결 확인**을 누릅니다. 익명 인증 UID를 어르신 ID로 사용하고 같은 UID의 `users/{uid}` 문서를 서버에서 읽어 연결을 확인합니다. 문서가 아직 없는 경우도 읽기 요청이 허용되면 연결 성공으로 표시합니다.

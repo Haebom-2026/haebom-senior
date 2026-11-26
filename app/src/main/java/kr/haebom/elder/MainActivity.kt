@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.text.InputType
@@ -17,11 +19,15 @@ import android.view.accessibility.AccessibilityManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import kr.haebom.elder.firebase.ElderFirebaseConnection
 import kr.haebom.elder.guide.GuideService
 import kr.haebom.elder.guide.GuideSession
 import kr.haebom.elder.guide.GuideTask
 
 class MainActivity : Activity() {
+    private val firebaseHandler = Handler(Looper.getMainLooper())
+    private var firebaseCheck = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -43,6 +49,11 @@ class MainActivity : Activity() {
         }
         findViewById<Button>(R.id.sos).setOnClickListener { openSos() }
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            findViewById<Button>(R.id.check_firebase).apply {
+                visibility = View.VISIBLE
+                setOnClickListener { verifyFirebase(this) }
+            }
+            findViewById<TextView>(R.id.firebase_status).visibility = View.VISIBLE
             findViewById<Button>(R.id.open_mock_guardian).apply {
                 visibility = View.VISIBLE
                 setOnClickListener {
@@ -57,6 +68,44 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateGuideStatus()
+    }
+
+    override fun onDestroy() {
+        firebaseHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private fun verifyFirebase(button: Button) {
+        val check = ++firebaseCheck
+        val status = findViewById<TextView>(R.id.firebase_status)
+        button.isEnabled = false
+        status.setText(R.string.firebase_checking)
+
+        val timeout = Runnable {
+            firebaseCheck++
+            status.setText(R.string.firebase_timeout)
+            button.isEnabled = true
+        }
+        firebaseHandler.postDelayed(timeout, 15_000)
+        ElderFirebaseConnection.verify(applicationContext) { result ->
+            if (isDestroyed || isFinishing || firebaseCheck != check) return@verify
+            firebaseHandler.removeCallbacks(timeout)
+            status.text = when (result) {
+                ElderFirebaseConnection.Result.MissingConfiguration -> getString(R.string.firebase_missing)
+                ElderFirebaseConnection.Result.DifferentProject -> getString(
+                    R.string.firebase_wrong_project, ElderFirebaseConnection.PROJECT_ID,
+                )
+                ElderFirebaseConnection.Result.NonAnonymousAccount -> getString(R.string.firebase_not_anonymous)
+                is ElderFirebaseConnection.Result.AuthFailed -> getString(R.string.firebase_auth_failed, result.code)
+                is ElderFirebaseConnection.Result.FirestoreFailed -> getString(
+                    R.string.firebase_firestore_failed, result.code,
+                )
+                is ElderFirebaseConnection.Result.Connected -> getString(
+                    if (result.profileExists) R.string.firebase_connected else R.string.firebase_profile_missing,
+                )
+            }
+            button.isEnabled = true
+        }
     }
 
     private fun updateGuideStatus() {
