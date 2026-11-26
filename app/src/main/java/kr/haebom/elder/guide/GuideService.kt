@@ -173,19 +173,22 @@ class GuideService : AccessibilityService() {
         candidateBoxes = emptyList()
         val decision = decide(foreground)
         guideMessage = decision.message
-        if (decision.target != highlightedTarget) {
+        // 안내 단계: '잘 해요'는 테두리·화살표·자동완성 없이 자막 힌트만
+        val level = settings.proficiency
+        val shownTarget = decision.target.takeIf { level.highlight != Proficiency.Highlight.NONE }
+        if (shownTarget != highlightedTarget) {
             clearHighlight()
-            decision.target?.let(::showHighlight)
+            shownTarget?.let(::showHighlight)
         }
         // 짚을 단추가 있으면 빨간 테두리만, 없을 때 이동 방향 화살표
-        val arrow = decision.arrow.takeIf { decision.target == null }
+        val arrow = decision.arrow.takeIf { decision.target == null && level.arrows }
         if (arrow != shownArrow) {
             clearArrow()
             arrow?.let(::showArrow)
         }
         // 자동완성 입력 단추: 입력 칸을 짚었을 때만, 그 바로 아래
-        val anchor = decision.target?.bounds
-        if (decision.chips.isNotEmpty() && anchor != null) {
+        val anchor = shownTarget?.bounds
+        if (decision.chips.isNotEmpty() && anchor != null && level.autofill) {
             chipAnchor = Rect(anchor)
             autofill.show(decision.chips, anchor)
         } else {
@@ -440,10 +443,63 @@ class GuideService : AccessibilityService() {
     private fun finishGuide(say: String): Decision {
         if (!aiDoneScheduled) {
             aiDoneScheduled = true
+            settings.countDone()
+            val serial = GuideSession.serial
+            handler.postDelayed({
+                if (GuideSession.serial == serial) {
+                    GuideSession.stop()
+                    maybeSuggestLessGuidance()
+                }
+            }, AI_DONE_LINGER_MS)
+        }
+        return Decision(null, say to GuideCaption.Tone.DONE)
+    }
+
+    private fun proficiencyName(level: Proficiency): Int = when (level) {
+        Proficiency.BEGINNER -> R.string.level_beginner
+        Proficiency.FAMILIAR -> R.string.level_familiar
+        Proficiency.EXPERT -> R.string.level_expert
+    }
+
+    private fun proficiencyHelp(level: Proficiency): Int = when (level) {
+        Proficiency.BEGINNER -> R.string.level_beginner_help
+        Proficiency.FAMILIAR -> R.string.level_familiar_help
+        Proficiency.EXPERT -> R.string.level_expert_help
+    }
+
+    /** (v4) 서버가 "여기서 멈춤"(송금 확정·가짜 사이트·3번 실패): 안내를 마치고 직접 확인하시게 */
+    private fun stopForSafety(say: String): Decision {
+        if (!aiDoneScheduled) {
+            aiDoneScheduled = true
             val serial = GuideSession.serial
             handler.postDelayed({ if (GuideSession.serial == serial) GuideSession.stop() }, AI_DONE_LINGER_MS)
         }
-        return Decision(null, say to GuideCaption.Tone.DONE)
+        return Decision(null, say to GuideCaption.Tone.WARN)
+    }
+
+    /** 지금 단계에서 안내를 여러 번 끝까지 마쳤으면 "안내를 줄여 볼까요?" 한 번 물어봄 */
+    private fun maybeSuggestLessGuidance() {
+        val level = settings.proficiency
+        val next = level.next ?: return
+        if (!Proficiency.shouldSuggest(level, settings.doneAtLevel, settings.suggestedAt(level))) return
+        settings.markSuggested(level)
+        val nextName = getString(proficiencyName(next))
+        card.show(
+            key = "level-up",
+            title = getString(R.string.levelup_title),
+            message = getString(R.string.levelup_message, Proficiency.SUGGEST_AFTER_DONE, nextName),
+            detail = getString(proficiencyHelp(next)),
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.levelup_yes, nextName)) {
+                    settings.proficiency = next
+                    GuideCaption.post(getString(R.string.levelup_done, nextName), GuideCaption.Tone.DONE)
+                },
+                OverlayCard.Action(getString(R.string.levelup_no), ElderUi.Kind.QUIET) {
+                    GuideCaption.post(getString(R.string.levelup_kept), GuideCaption.Tone.INFO)
+                },
+            ),
+            accent = ElderUi.GREEN,
+        )
     }
 
     /**
@@ -491,6 +547,7 @@ class GuideService : AccessibilityService() {
             "AI 요청: 노드 ${captured.nodes.size}개, 입력 칸 ${fields.size}개(채워짐 ${fields.count { it.filled }}), 상태='${state[STATE_SLOT].orEmpty()}'",
         )
         val id = client.request(
+            settings.proficiency.aiMode,
             active.goal, active.utterance, active.slots + (SAFETY_SLOT to SAFETY_NOTE) + (FORM_SLOT to FORM_NOTE) + state, screenJson, aiHistory.toList(), settings.deviceId,
         ) { requestId, outcome -> onAiOutcome(requestId, fingerprint, outcome) }
         aiPending = AiPending(id, fingerprint)
@@ -543,8 +600,15 @@ class GuideService : AccessibilityService() {
         aiSeek = null
         aiSeekFoundOn = null
         aiLastSwipe = null
+        return when {
+            reply.type == AiReply.DONE -> finishGuide(say)
+            reply.isStopped -> stopForSafety(say)
+            else -> applyAiStep(reply, say, captured, windowId, foreground)
+        }
+    }
+
+    private fun applyAiStep(reply: AiReply, say: String, captured: CapturedScreen, windowId: Int, foreground: String): Decision {
         return when (reply.type) {
-            AiReply.DONE -> finishGuide(say)
             AiReply.HIGHLIGHT, AiReply.SUGGEST -> {
                 val node = AiReply.findTarget(reply, captured.nodes)
                 val b = node?.bounds
@@ -649,7 +713,8 @@ class GuideService : AccessibilityService() {
     }
 
     private fun showHighlight(target: Target) {
-        val view = GuideHighlightView(this, target.bounds, getString(R.string.caption_here))
+        val light = settings.proficiency.highlight == Proficiency.Highlight.LIGHT
+        val view = GuideHighlightView(this, target.bounds, getString(R.string.caption_here), light)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -760,7 +825,10 @@ class GuideService : AccessibilityService() {
                         startListening(fallbackToWindow = false)
                     }
                 }
-            } else if (message.first != getString(R.string.caption_ai_waiting)) {
+            } else if (message.first != getString(R.string.caption_ai_waiting) &&
+                (settings.proficiency.speakSteps || message.second == GuideCaption.Tone.WARN)
+            ) {
+                // '잘 해요' 단계는 매 단계는 조용히(자막만), 주의는 읽어 줌
                 speak(message.first)
             }
         }

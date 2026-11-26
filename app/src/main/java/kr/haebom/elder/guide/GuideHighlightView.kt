@@ -19,11 +19,14 @@ import kotlin.math.sin
  * - 흰 바깥선 + 굵은 빨간 테두리: 밝은 화면·어두운 화면 모두에서 잘 보이게
  * - 바깥으로 퍼지는 빛 고리 (애니메이션을 끈 기기에서는 멈춘 고리)
  * - "여기를 누르세요" 말풍선: 자리가 있는 쪽(위/아래)에 꼬리를 달아 표시
+ *
+ * [light] (안내 단계 '조금 익숙해요'): 바깥을 어둡게 하지 않고 말풍선 없이, 얇은 테두리와 은은한 빛만
  */
 internal class GuideHighlightView(
     context: Context,
     private val target: Rect?,
     private val label: String,
+    private val light: Boolean = false,
 ) : View(context) {
     private val density = resources.displayMetrics.density
     private val scrim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(96, 0, 0, 0) }
@@ -86,6 +89,21 @@ internal class GuideHighlightView(
         frame.offset(-screenPosition[0].toFloat(), -screenPosition[1].toFloat())
         frame.inset(-6 * density, -6 * density)
         val radius = 14 * density
+
+        if (light) {
+            // 얇은 테두리 + 은은한 빛만 (화면을 가리지 않게)
+            ring.strokeWidth = 4 * density
+            shadowRing.strokeWidth = 7 * density
+            val soft = phase * 10 * density
+            glow.alpha = ((1f - phase) * 120).toInt()
+            canvas.drawRoundRect(
+                frame.left - soft, frame.top - soft, frame.right + soft, frame.bottom + soft,
+                radius + soft, radius + soft, glow,
+            )
+            canvas.drawRoundRect(frame, radius, radius, shadowRing)
+            canvas.drawRoundRect(frame, radius, radius, ring)
+            return
+        }
 
         // 1) 바깥 어둡게 (가운데는 뚫음)
         hole.reset()

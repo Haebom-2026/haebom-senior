@@ -68,12 +68,14 @@ internal object ScreenPayload {
         screen: String,
         history: List<String> = emptyList(),
         deviceId: String? = null,
+        /** (guide@v4) guide: 말로 이끌어 드림, solo: 혼자 하다가 막힐 때 힌트 (안내 단계 '잘 해요') */
+        mode: String = "guide",
     ): String {
         val slotJson = slots.entries.joinToString(",", "{", "}") { (k, v) -> "${quote(k.take(40))}:${quote(v.take(100))}" }
         val historyJson = history.takeLast(MAX_HISTORY).joinToString(",", "[", "]") { quote(it.take(200)) }
         val device = deviceId?.takeIf(::isValidDeviceId)?.let { ",\"deviceId\":${quote(it)}" }.orEmpty()
         return "{\"requestId\":$requestId,\"goal\":${quote(goal.take(40))},\"utterance\":${quote(utterance.take(200))}," +
-            "\"slots\":$slotJson,\"history\":$historyJson,\"screen\":$screen$device}"
+            "\"slots\":$slotJson,\"history\":$historyJson,\"mode\":${quote(mode)},\"screen\":$screen$device}"
     }
 
     /**

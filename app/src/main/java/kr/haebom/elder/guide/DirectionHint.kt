@@ -28,6 +28,11 @@ internal enum class DirectionHint {
          */
         fun from(reply: AiReply): DirectionHint? {
             if (reply.type == AiReply.SWIPE) return fromSwipe(reply.dir)
+            // (v4) 서버가 홈·뒤로를 분명히 알려 주면 그대로
+            when (reply.nav) {
+                "home" -> return HOME
+                "back" -> return BACK
+            }
             if (reply.pointsAtTarget || reply.type == AiReply.DONE) return null
             val text = reply.say.filterNot(Char::isWhitespace)
             return when {

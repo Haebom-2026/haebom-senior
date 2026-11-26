@@ -14,6 +14,8 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import android.graphics.Color
+import android.view.View
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
 import kr.haebom.elder.family.FamilyActivity
@@ -22,6 +24,7 @@ import kr.haebom.elder.guide.GuideCaption
 import kr.haebom.elder.guide.GuideService
 import kr.haebom.elder.guide.GuideSession
 import kr.haebom.elder.guide.GuideTask
+import kr.haebom.elder.guide.Proficiency
 import kr.haebom.elder.ui.ElderUi
 import kr.haebom.elder.ui.ElderUi.visible
 
@@ -38,7 +41,8 @@ class MainActivity : Activity() {
     private lateinit var statusTitle: TextView
     private lateinit var statusHelp: TextView
     private lateinit var openSettings: Button
-    private lateinit var guideButtons: List<Button>
+    private lateinit var guideButtons: List<View>
+    private lateinit var levelList: LinearLayout
     private lateinit var stopButton: Button
     private lateinit var sosButton: Button
     private lateinit var familySummary: TextView
@@ -47,49 +51,58 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val page = ElderUi.page(this)
-        page.addView(ElderUi.title(this, getString(R.string.app_name)))
-        page.addView(ElderUi.body(this, getString(R.string.main_greeting), 21f, ElderUi.INK))
 
-        // 지금 상태
-        statusCard = ElderUi.card(this)
-        statusTitle = ElderUi.text(this, "", 23f, ElderUi.INK, bold = true)
-        statusHelp = ElderUi.body(this, "", 19f)
+        // 머리 카드: 이름 · 인사 · 화면 안내 상태
+        val hero = ElderUi.hero(this)
+        hero.addView(ElderUi.text(this, getString(R.string.app_name), 32f, Color.WHITE, bold = true))
+        hero.addView(ElderUi.text(this, getString(R.string.main_greeting), 21f, Color.argb(230, 255, 255, 255)))
+        statusTitle = ElderUi.pill(this, "", Color.WHITE, ElderUi.GREEN)
+        hero.addView(statusTitle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = ElderUi.dp(this@MainActivity, 14) })
+        statusHelp = ElderUi.text(this, "", 18f, Color.argb(220, 255, 255, 255)).apply {
+            setPadding(0, ElderUi.dp(this@MainActivity, 8), 0, 0)
+        }
+        hero.addView(statusHelp)
         openSettings = ElderUi.button(this, getString(R.string.open_accessibility_settings), ElderUi.Kind.SECONDARY) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-        statusCard.addView(statusTitle)
-        statusCard.addView(statusHelp)
-        statusCard.addView(openSettings)
-        page.addView(statusCard)
+        hero.addView(openSettings)
+        statusCard = hero
+        page.addView(hero)
 
-        // 도움 받기
+        // 도움 받기: 큰 말하기 단추 + 바둑판 단추 넷
         page.addView(ElderUi.section(this, getString(R.string.main_section_help)))
         val voice = ElderUi.button(this, getString(R.string.voice_command)) {
             startActivity(GuideInputActivity.intent(this))
-        }.apply { minHeight = ElderUi.dp(context, 84); textSize = 25f }
+        }.apply { minHeight = ElderUi.dp(context, 96); textSize = 27f }
         page.addView(voice)
-        val contacts = ElderUi.button(this, getString(R.string.command_contacts), ElderUi.Kind.SECONDARY) {
-            startGuide(this, GuideTask.CONTACTS)
+        page.addView(ElderUi.body(this, getString(R.string.main_voice_hint), 18f).apply {
+            gravity = android.view.Gravity.CENTER
+        })
+        val contacts = ElderUi.tile(this, "📇", getString(R.string.tile_contacts)) { startGuide(this, GuideTask.CONTACTS) }
+        val youtube = ElderUi.tile(this, "▶️", getString(R.string.tile_youtube)) { startGuide(this, GuideTask.YOUTUBE) }
+        val gov24 = ElderUi.tile(this, "🏛️", getString(R.string.tile_gov24)) { startGuide(this, GuideTask.GOV24) }
+        val practice = ElderUi.tile(this, "✋", getString(R.string.tile_practice)) {
+            GuideSession.stop()
+            startActivity(Intent(this, GuidePracticeActivity::class.java))
         }
-        val youtube = ElderUi.button(this, getString(R.string.command_youtube), ElderUi.Kind.SECONDARY) {
-            startGuide(this, GuideTask.YOUTUBE)
-        }
-        val gov24 = ElderUi.button(this, getString(R.string.command_gov24), ElderUi.Kind.SECONDARY) {
-            startGuide(this, GuideTask.GOV24)
-        }
-        listOf(contacts, youtube, gov24).forEach(page::addView)
+        page.addView(ElderUi.pairRow(this, contacts, youtube))
+        page.addView(ElderUi.pairRow(this, gov24, practice))
         stopButton = ElderUi.button(this, getString(R.string.stop_guide), ElderUi.Kind.QUIET) {
             GuideSession.stop()
             GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.DONE)
             updateGuideStatus()
         }
         page.addView(stopButton)
-        val practice = ElderUi.button(this, getString(R.string.open_practice), ElderUi.Kind.QUIET) {
-            GuideSession.stop()
-            startActivity(Intent(this, GuidePracticeActivity::class.java))
-        }
-        page.addView(practice)
         guideButtons = listOf(voice, contacts, youtube, gov24, practice)
+
+        // 안내 정도 (어르신이 스스로 고름)
+        page.addView(ElderUi.section(this, getString(R.string.main_section_level)))
+        page.addView(ElderUi.body(this, getString(R.string.main_level_help), 18f))
+        levelList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        page.addView(levelList)
+        renderLevels()
 
         // 가족
         page.addView(ElderUi.section(this, getString(R.string.main_section_family)))
@@ -137,6 +150,28 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         firebaseHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
+    }
+
+    /** 안내 정도 카드 셋. 누르면 그 단계로 바꾸고 다시 그림 */
+    private fun renderLevels() {
+        levelList.removeAllViews()
+        val current = settings.proficiency
+        val levels = listOf(
+            Triple(Proficiency.BEGINNER, R.string.level_beginner, R.string.level_beginner_help),
+            Triple(Proficiency.FAMILIAR, R.string.level_familiar, R.string.level_familiar_help),
+            Triple(Proficiency.EXPERT, R.string.level_expert, R.string.level_expert_help),
+        )
+        levels.forEach { (level, name, help) ->
+            levelList.addView(ElderUi.choiceCard(
+                this, getString(name), getString(help), level == current, getString(R.string.level_current),
+            ) {
+                if (settings.proficiency != level) {
+                    settings.proficiency = level
+                    GuideCaption.post(getString(R.string.level_changed, getString(name)), GuideCaption.Tone.INFO)
+                    renderLevels()
+                }
+            })
+        }
     }
 
     private fun renderFamily() {
@@ -214,12 +249,12 @@ class MainActivity : Activity() {
         statusTitle.setText(if (enabled) R.string.main_status_on else R.string.main_status_off)
         statusHelp.setText(if (enabled) R.string.main_status_on_help else R.string.main_status_off_help)
         statusTitle.setTextColor(if (enabled) ElderUi.GREEN else ElderUi.RED)
-        statusCard.background = ElderUi.rounded(
-            if (enabled) ElderUi.SOFT_GREEN else ElderUi.SOFT_RED,
-            ElderUi.dp(this, 20).toFloat(), ElderUi.dp(this, 2), if (enabled) ElderUi.GREEN else ElderUi.RED,
-        )
         openSettings.visible(!enabled)
-        guideButtons.forEach { it.isEnabled = enabled }
-        stopButton.isEnabled = GuideSession.active != null
+        guideButtons.forEach {
+            it.isEnabled = enabled
+            it.alpha = if (enabled) 1f else 0.45f
+        }
+        // 안내 중일 때만 "안내 그만하기"
+        stopButton.visible(GuideSession.active != null)
     }
 }

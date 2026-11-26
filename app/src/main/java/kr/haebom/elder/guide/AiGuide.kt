@@ -21,7 +21,18 @@ internal data class AiReply(
     val chips: List<String> = emptyList(),
     val dir: String? = null,
     val seekText: String? = null,
+    /** (guide@v4) in_progress / clarify / off_track / stopped / done */
+    val status: String? = null,
+    /** (v4) suggest: 칸에 넣을 글자 하나 ("넣기" 단추). 어르신이 직접 쓸 칸이면 없음 */
+    val typeText: String? = null,
+    /** (v4) say: home / back */
+    val nav: String? = null,
+    /** (v4) ask: 답 단추 글자 */
+    val options: List<String> = emptyList(),
 ) {
+    /** (v4) 송금·결제 확정, 공식이 아닌 사이트, 같은 단계 3번 실패: 여기서 멈추고 직접 확인하시게 */
+    val isStopped: Boolean get() = status == "stopped"
+
     /** 짚을 요소가 있는 응답 */
     val pointsAtTarget: Boolean get() = target != null && (type == HIGHLIGHT || type == SUGGEST)
 
@@ -65,6 +76,10 @@ internal data class AiReply(
                 chips = json.optJSONArray("chips")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
                 dir = json.optString("dir").takeIf { it.isNotBlank() },
                 seekText = json.optString("seekText").takeIf { it.isNotBlank() },
+                status = json.optString("status").takeIf { it.isNotBlank() },
+                typeText = json.optString("typeText").takeIf { it.isNotBlank() },
+                nav = json.optString("nav").takeIf { it.isNotBlank() },
+                options = json.optJSONArray("options")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
             )
         }.getOrNull()
 
@@ -103,6 +118,7 @@ internal class AiGuideClient(private val api: HaebomApi) {
     private var lastRequestId = 0
 
     fun request(
+        mode: String,
         goal: String,
         utterance: String,
         slots: Map<String, String>,
@@ -112,7 +128,7 @@ internal class AiGuideClient(private val api: HaebomApi) {
         done: (requestId: Int, outcome: AiOutcome) -> Unit,
     ): Int {
         val id = ++lastRequestId
-        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId)
+        val body = ScreenPayload.guide(id, goal, utterance, slots, screen, history, deviceId, mode)
         io.execute {
             val started = SystemClock.uptimeMillis()
             val reply = api.call("POST", "/v1/elder/guide", body)

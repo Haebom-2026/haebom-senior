@@ -29,6 +29,7 @@ class SearchWordsTest {
         // AI 추천어가 문장이어도 단추에는 검색어만
         val field = ScreenNode(className = "EditText", editable = true)
         val reply = AiReply(1, "suggest", "", target = 0, chips = listOf("임영웅 검색 해줘", "임영웅 노래"))
-        assertEquals(listOf("임영웅", "임영웅 노래"), AutofillPlan.chips(reply, field, GuideSession.Active(null, null)))
+        val youtube = GuideSession.Active(GuideTask.YOUTUBE, "com.google.android.youtube", queryFilled = true)
+        assertEquals(listOf("임영웅", "임영웅 노래"), AutofillPlan.chips(reply, field, youtube))
     }
 }

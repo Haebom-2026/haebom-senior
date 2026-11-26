@@ -184,6 +184,31 @@
     <string name="main_status_on_help">다른 앱 위의 ‘말하기’ 단추를 누르고 필요한 일을 말씀해 주세요.</string>
     <string name="main_status_off">⚠️ 화면 안내가 꺼져 있어요</string>
     <string name="main_status_off_help">아래 단추를 눌러 접근성 설정에서 ‘해봄 화면 안내’를 켜 주세요.</string>
+    <string name="main_section_level">안내 정도</string>
+    <string name="main_level_help">익숙해지면 안내를 줄여 혼자 해 보세요. 언제든 다시 바꿀 수 있어요.</string>
+    <string name="main_voice_hint">‘유튜브에서 임영웅 찾아 줘’처럼 말씀해 보세요</string>
+    <string name="tile_contacts">연락처
+추가</string>
+    <string name="tile_youtube">유튜브
+검색</string>
+    <string name="tile_gov24">정부24
+등본</string>
+    <string name="tile_practice">화면 안내
+연습</string>
+    <string name="level_current">✓ 지금 단계</string>
+    <string name="level_beginner">🌱 처음이에요</string>
+    <string name="level_familiar">🌿 조금 익숙해요</string>
+    <string name="level_expert">🌳 잘 해요</string>
+    <string name="level_beginner_help">눌러야 할 곳을 크게 짚고, 한 단계씩 읽어 드려요. 검색어도 대신 넣어 드려요.</string>
+    <string name="level_familiar_help">눌러야 할 곳을 얇은 테두리로만 짚어요. 화면을 어둡게 하지 않아요.</string>
+    <string name="level_expert_help">짚지 않고 자막에 짧은 힌트만 보여 드려요. 막히면 말하기로 물어보세요.</string>
+    <string name="level_changed">안내 정도를 ‘%1$s’로 바꿨어요.</string>
+    <string name="levelup_title">🌿 이제 익숙해지셨네요</string>
+    <string name="levelup_message">안내를 %1$d번 끝까지 마치셨어요. 안내를 줄여서 ‘%2$s’ 단계로 해 볼까요?</string>
+    <string name="levelup_yes">네, %1$s로 해 볼게요</string>
+    <string name="levelup_no">지금처럼 할게요</string>
+    <string name="levelup_done">‘%1$s’ 단계로 바꿨어요. 어려우면 메인 화면에서 언제든 되돌릴 수 있어요.</string>
+    <string name="levelup_kept">알겠어요. 지금처럼 자세히 안내할게요.</string>
     <string name="main_section_help">도움 받기</string>
     <string name="main_section_family">가족</string>
     <string name="main_section_settings">설정</string>

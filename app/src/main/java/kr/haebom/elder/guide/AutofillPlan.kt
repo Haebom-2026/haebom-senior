@@ -13,10 +13,16 @@ internal object AutofillPlan {
         if (target?.editable != true) return emptyList()
         val spoken = (active?.query ?: active?.slots?.get("query"))
             ?.takeIf { active?.queryFilled == false }
-        val suggested = if (reply.type == AiReply.SUGGEST) reply.chips else emptyList()
-        // 단추에는 검색어만: AI 추천어나 대답이 문장("임영웅 검색 해줘")이어도 앞부분만 넣음
-        return (listOfNotNull(spoken) + suggested)
-            .map { GuideTask.searchWords(it) ?: it.trim() }
+        // AI 가 준 넣을 글자(typeText, 없으면 chips)는 그대로: 이름·번호·"화면 자동 꺼짐" 같은 값을 자르지 않음
+        val suggested = if (reply.type == AiReply.SUGGEST) listOfNotNull(reply.typeText) + reply.chips else emptyList()
+        // 어르신이 말한 검색어는 다듬음 ("임영웅 검색 해줘" → "임영웅").
+        // 유튜브 검색 안내에서는 AI 글자도 검색어만 (AI 가 말한 문장 그대로 줄 때가 있어서)
+        val trimSuggested = active?.task == GuideTask.YOUTUBE
+        return (
+            listOfNotNull(spoken?.let { GuideTask.searchWords(it) ?: it }) +
+                suggested.map { if (trimSuggested) GuideTask.searchWords(it) ?: it else it }
+            )
+            .map(String::trim)
             .filter(String::isNotEmpty)
             .distinctBy { GuideTask.normalize(it) }
             .take(MAX_CHIPS)

@@ -23,6 +23,25 @@ internal class ElderSettings(context: Context) {
         get() = prefs.getBoolean(KEY_SENSITIVE, true)
         set(value) = prefs.edit().putBoolean(KEY_SENSITIVE, value).apply()
 
+    /** 안내 단계 (처음/조금 익숙/잘 함). 어르신이 메인 화면에서 고름 */
+    var proficiency: kr.haebom.elder.guide.Proficiency
+        get() = kr.haebom.elder.guide.Proficiency.of(prefs.getString(KEY_PROFICIENCY, null))
+        set(value) = prefs.edit().putString(KEY_PROFICIENCY, value.name).putInt(KEY_DONE_AT_LEVEL, 0).apply()
+
+    /** 지금 단계에서 안내를 끝까지 마친 횟수 (단계를 바꾸면 0부터) */
+    val doneAtLevel: Int get() = prefs.getInt(KEY_DONE_AT_LEVEL, 0)
+
+    fun countDone() {
+        prefs.edit().putInt(KEY_DONE_AT_LEVEL, doneAtLevel + 1).apply()
+    }
+
+    /** 이 단계에서 "안내를 줄여 볼까요?"를 이미 물었는지 */
+    fun suggestedAt(level: kr.haebom.elder.guide.Proficiency): Boolean = prefs.getBoolean(KEY_SUGGESTED + level.name, false)
+
+    fun markSuggested(level: kr.haebom.elder.guide.Proficiency) {
+        prefs.edit().putBoolean(KEY_SUGGESTED + level.name, true).apply()
+    }
+
     /** 이 기기의 고유 ID (서버 #4 기기 등록, 디버그 뷰어 heartbeat 에 같은 값) */
     val deviceId: String
         get() = prefs.getString(KEY_DEVICE, null) ?: java.util.UUID.randomUUID().toString().also {
@@ -82,6 +101,9 @@ internal class ElderSettings(context: Context) {
         private const val KEY_DEVICE = "device_id"
         private const val KEY_MANUAL_NAME = "manual_name"
         private const val KEY_MANUAL_PHONE = "manual_phone"
+        private const val KEY_PROFICIENCY = "proficiency"
+        private const val KEY_DONE_AT_LEVEL = "done_at_level"
+        private const val KEY_SUGGESTED = "suggested_"
 
         fun normalizePhone(value: String): String = value.filter { it.isDigit() || it == '+' }
 
