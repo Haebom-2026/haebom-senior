@@ -4,15 +4,13 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
-import kr.haebom.elder.guardian.DebugFamilyBackends
 import kr.haebom.elder.guide.DevScreenHook
 
-/** debug 빌드에서만 앱 시작 시 디버그 뷰어 전송기와 보호자 연동(실제 서버 또는 Mock)을 연결합니다 (데이터는 제공하지 않음). */
+/** debug 빌드에서만 앱 시작 시 디버그 뷰어 전송기를 연결합니다 (데이터는 제공하지 않음). */
 internal class DevViewerInitializer : ContentProvider() {
     override fun onCreate(): Boolean {
         val app = context?.applicationContext ?: return false
         client = DevViewerClient(app).also { DevScreenHook.sink = it }
-        DebugFamilyBackends.install(app)
         return true
     }
 

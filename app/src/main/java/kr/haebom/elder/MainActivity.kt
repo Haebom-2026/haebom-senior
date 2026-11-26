@@ -158,9 +158,6 @@ class MainActivity : Activity() {
 
     private fun addDeveloperTools(page: LinearLayout) {
         page.addView(ElderUi.section(this, getString(R.string.main_section_dev)))
-        page.addView(ElderUi.button(this, getString(R.string.open_mock_guardian), ElderUi.Kind.QUIET) {
-            startActivity(Intent().setClassName(packageName, "kr.haebom.elder.guardian.MockGuardianActivity"))
-        })
         page.addView(ElderUi.button(this, getString(R.string.open_dev_viewer), ElderUi.Kind.QUIET) {
             startActivity(Intent().setClassName(packageName, "kr.haebom.elder.dev.DevViewerActivity"))
         })

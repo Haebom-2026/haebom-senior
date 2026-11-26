@@ -2,7 +2,6 @@
     <!-- 디버그 뷰어 전송 (debug 빌드 전용) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <application>
-        <activity android:name=".guardian.MockGuardianActivity" android:exported="false" />
         <activity android:name=".dev.DevViewerActivity" android:exported="false" />
         <provider
             android:name=".dev.DevViewerInitializer"

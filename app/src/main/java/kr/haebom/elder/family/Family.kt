@@ -77,11 +77,11 @@ internal enum class DisconnectResult { DISCONNECTED, WRONG_CODE, NOT_LINKED, FAI
 
 /**
  * 고령자 앱이 보호자 연동에 쓰는 창구는 이것 하나입니다.
- * 지금은 debug 빌드의 Mock이 구현하고, 서버(S1~S3)가 올라오면 서버 구현으로 바꿔 끼웁니다.
+ * 구현은 실제 서버([ServerFamilyGateway]) 하나입니다.
  * 결과는 모두 메인 스레드에서 콜백으로 돌려줍니다.
  */
 internal interface FamilyGateway {
-    /** 화면에 보여 줄 연결 방식 이름 (예: "실제 서버", "Mock") */
+    /** 화면에 보여 줄 연결 방식 이름 (예: "실제 서버") */
     val backendName: String
 
     /**
@@ -126,7 +126,7 @@ internal interface FamilyGateway {
 }
 
 internal object Family {
-    /** debug 빌드는 Mock, release 빌드는 서버 연결 전까지 null */
+    /** 서버 주소가 있으면 [kr.haebom.elder.net.HaebomServer] 가 넣음. release 는 서버 주소가 정해지기 전까지 null */
     @Volatile
     var gateway: FamilyGateway? = null
 

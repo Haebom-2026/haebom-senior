@@ -50,14 +50,6 @@ class DevViewerActivity : Activity() {
         status = TextView(this).apply { textSize = 15f }
         content.addView(status)
 
-        // 보호자 연동 연결 방식
-        content.addView(Switch(this).apply {
-            text = "보호자 연동: 실제 서버 사용 (끄면 기기 안 Mock)"
-            textSize = 18f
-            isChecked = kr.haebom.elder.guardian.DebugFamilyBackends.useServer(context)
-            setOnCheckedChangeListener { _, on -> kr.haebom.elder.guardian.DebugFamilyBackends.setUseServer(context, on) }
-        })
-
         // #16 가이드 서버 시험
         content.addView(TextView(this).apply {
             text = "\n가이드 서버(#16) 시험\n유튜브 같은 다른 앱 화면을 한 번 열었다가 돌아와서 누르세요. 마지막으로 읽은 화면을 보냅니다."

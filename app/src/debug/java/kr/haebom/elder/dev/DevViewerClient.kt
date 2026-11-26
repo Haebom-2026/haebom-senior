@@ -65,8 +65,10 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
      * 서버는 화면을 보관하지 않고, 비밀번호 화면·은행 목표는 AI 에 보내지 않음 (서버 기획 5.3).
      */
     fun sendGuideTest(goal: String, utterance: String, slots: Map<String, String>, done: (String) -> Unit) {
-        // 읽은 화면이 없으면(접근성 꺼짐 등) 예시 유튜브 첫 화면으로 보냄
-        val screen = lastAppScreen ?: SAMPLE_YOUTUBE_HOME
+        val screen = lastAppScreen ?: run {
+            done("보내지 않음: 아직 읽은 다른 앱 화면이 없어요. 화면 안내를 켜고 다른 앱을 한 번 열어 주세요.")
+            return
+        }
         val body = DevScreenPayload.guide(++guideRequestId, goal, utterance, slots, screen)
         io.execute {
             val started = System.currentTimeMillis()
@@ -242,27 +244,9 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
 
     /** 마지막으로 보낼 화면이 실제 화면인지 예시 화면인지 (화면 표시용) */
     val guideScreenSource: String
-        get() = lastAppPackage?.let { "실제 화면 ($it)" } ?: "예시 화면 (유튜브 첫 화면)"
+        get() = lastAppPackage?.let { "실제 화면 ($it)" } ?: "읽은 화면 없음"
 
     companion object {
-        /** 접근성이 꺼져 있어도 가이드 서버를 시험할 수 있는 예시 화면 (1080x2400, 유튜브 첫 화면 모양) */
-        val SAMPLE_YOUTUBE_HOME: String = DevScreenPayload.screenObject(
-            "com.google.android.youtube", 1080, 2400,
-            listOf(
-                DevNode(description = "YouTube", className = "ImageView", bounds = intArrayOf(40, 110, 300, 190)),
-                DevNode(description = "전송", className = "ImageView", bounds = intArrayOf(700, 110, 800, 190), clickable = true),
-                DevNode(description = "알림", className = "ImageView", bounds = intArrayOf(820, 110, 920, 190), clickable = true),
-                DevNode(description = "검색", className = "ImageView", bounds = intArrayOf(950, 110, 1050, 190), clickable = true),
-                DevNode(text = "전체", className = "Button", bounds = intArrayOf(40, 220, 180, 300), clickable = true),
-                DevNode(text = "음악", className = "Button", bounds = intArrayOf(200, 220, 340, 300), clickable = true),
-                DevNode(text = "오늘의 인기 동영상", className = "TextView", bounds = intArrayOf(40, 900, 1040, 980), clickable = true),
-                DevNode(text = "홈", className = "Button", bounds = intArrayOf(0, 2250, 216, 2400), clickable = true, selected = true),
-                DevNode(text = "Shorts", className = "Button", bounds = intArrayOf(216, 2250, 432, 2400), clickable = true),
-                DevNode(text = "구독", className = "Button", bounds = intArrayOf(648, 2250, 864, 2400), clickable = true),
-                DevNode(text = "나", className = "Button", bounds = intArrayOf(864, 2250, 1080, 2400), clickable = true),
-            ),
-        )!!
-
         /** dev 환경 API Gateway. release 빌드에는 이 코드가 없습니다 */
         const val API_BASE = kr.haebom.elder.BuildConfig.API_BASE
         const val VIEWER_URL = "https://d3jcc37k40jy8z.cloudfront.net"
