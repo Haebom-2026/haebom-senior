@@ -25,6 +25,20 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    buildTypes {
+        // 앱이 부르는 서버 주소: debug 는 dev, release 는 prod 가 정해지면 넣음 (비어 있으면 서버 연동 꺼짐)
+        debug {
+            buildConfigField("String", "API_BASE", "\"https://qq829otaql.execute-api.ap-northeast-2.amazonaws.com\"")
+        }
+        release {
+            buildConfigField("String", "API_BASE", "\"\"")
+        }
+    }
 }
 
 kotlin {
@@ -37,6 +51,8 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // 단위 테스트에서 org.json 실제 구현 사용
 }

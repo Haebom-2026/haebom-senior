@@ -19,7 +19,6 @@ import kr.haebom.elder.guide.GuideTask
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
-import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -44,10 +43,9 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
             if (value && service != null) main.post(heartbeatLoop)
         }
 
+    /** 서버 #4 기기 등록과 같은 값 (서버 계약서 3장) */
     val deviceId: String
-        get() = prefs.getString(KEY_DEVICE, null) ?: UUID.randomUUID().toString().also {
-            prefs.edit().putString(KEY_DEVICE, it).apply()
-        }
+        get() = kr.haebom.elder.family.ElderSettings(context).deviceId
 
     @Volatile var lastHeartbeat: String = "아직 보내지 않았어요"
         private set
@@ -243,11 +241,10 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
 
     companion object {
         /** dev 환경 API Gateway. release 빌드에는 이 코드가 없습니다 */
-        const val API_BASE = "https://qq829otaql.execute-api.ap-northeast-2.amazonaws.com"
+        const val API_BASE = kr.haebom.elder.BuildConfig.API_BASE
         const val VIEWER_URL = "https://d3jcc37k40jy8z.cloudfront.net"
         private const val TAG = "HaebomDevViewer"
         private const val KEY_ENABLED = "enabled"
-        private const val KEY_DEVICE = "device_id"
         private const val HEARTBEAT_MS = 5_000L
         private const val DEBOUNCE_MS = 300L
         private const val MAX_VISIT = 400

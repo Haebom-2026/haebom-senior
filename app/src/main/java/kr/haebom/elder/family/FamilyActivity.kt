@@ -46,6 +46,9 @@ class FamilyActivity : Activity() {
         val page = ElderUi.page(this)
         page.addView(ElderUi.title(this, getString(R.string.family_title)))
         page.addView(ElderUi.body(this, getString(R.string.family_intro)))
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            page.addView(ElderUi.body(this, "연결 방식: ${gateway?.backendName ?: "없음"} (시험판 표시)", 16f))
+        }
 
         if (gateway == null) {
             page.addView(ElderUi.card(this, ElderUi.SOFT_RED, ElderUi.RED).apply {
@@ -232,6 +235,20 @@ class FamilyActivity : Activity() {
     private fun confirmDisconnect(link: FamilyLink) {
         val gate = gateway ?: return
         val name = link.labelForElder
+        if (!gate.requiresReleaseCode) {
+            // 서버가 해제 확인 코드를 지원하기 전: 한 번 더 묻고 끊음
+            val dialog = AlertDialog.Builder(this)
+                .setTitle(getString(R.string.family_disconnect_title, name))
+                .setMessage(getString(R.string.family_disconnect_simple, name))
+                .setPositiveButton(R.string.family_disconnect) { _, _ ->
+                    gate.disconnect(link.guardianId, "") { result -> onDisconnected(link, result) }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .create()
+            dialog.show()
+            enlarge(dialog)
+            return
+        }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = ElderUi.dp(context, 20)
@@ -273,6 +290,18 @@ class FamilyActivity : Activity() {
                     DisconnectResult.FAILED -> say(getString(R.string.family_failed), GuideCaption.Tone.WARN)
                 }
             }
+        }
+    }
+
+    private fun onDisconnected(link: FamilyLink, result: DisconnectResult) {
+        val name = link.labelForElder
+        when (result) {
+            DisconnectResult.DISCONNECTED -> {
+                settings.forget(link.guardianId)
+                say(getString(R.string.family_disconnected, name), GuideCaption.Tone.DONE)
+            }
+            DisconnectResult.NOT_LINKED -> say(getString(R.string.family_not_linked), GuideCaption.Tone.INFO)
+            else -> say(getString(R.string.family_failed), GuideCaption.Tone.WARN)
         }
     }
 

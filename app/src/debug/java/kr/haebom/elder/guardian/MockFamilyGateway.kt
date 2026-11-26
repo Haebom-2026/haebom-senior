@@ -15,6 +15,8 @@ internal class MockFamilyGateway(
 ) : FamilyGateway {
     private val main = Handler(Looper.getMainLooper())
 
+    override val backendName = "Mock (기기 안 연습)"
+
     override fun observe(listener: () -> Unit): AutoCloseable = repo.observe(listener)
 
     override fun links(): List<FamilyLink> = repo.linksForElder(elderId)

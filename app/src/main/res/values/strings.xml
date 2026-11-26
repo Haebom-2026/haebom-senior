@@ -135,6 +135,7 @@
     <string name="family_save_failed">이름을 바꾸지 못했어요. 잠시 뒤 다시 해 주세요.</string>
     <string name="family_disconnect_title">%1$s 님과 연결 끊기</string>
     <string name="family_disconnect_help">끊으려면 %1$s 님 보호자 앱에 보이는 ‘해제 확인 코드’ 6자리를 넣어 주세요. 다른 사람이 몰래 연결을 끊지 못하게 하려는 거예요.</string>
+    <string name="family_disconnect_simple">정말 %1$s 님과 연결을 끊을까요? 끊으면 %1$s 님에게 더 이상 알림이 가지 않아요.</string>
     <string name="family_release_hint">해제 확인 코드 6자리</string>
     <string name="family_disconnected">%1$s 님과 연결을 끊었어요.</string>
     <string name="family_wrong_code">확인 코드가 맞지 않아요. 보호자 앱에서 코드를 다시 확인해 주세요.</string>

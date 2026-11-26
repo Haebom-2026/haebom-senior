@@ -23,6 +23,22 @@ internal class ElderSettings(context: Context) {
         get() = prefs.getBoolean(KEY_SENSITIVE, true)
         set(value) = prefs.edit().putBoolean(KEY_SENSITIVE, value).apply()
 
+    /** 이 기기의 고유 ID (서버 #4 기기 등록, 디버그 뷰어 heartbeat 에 같은 값) */
+    val deviceId: String
+        get() = prefs.getString(KEY_DEVICE, null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString(KEY_DEVICE, it).apply()
+        }
+
+    /**
+     * 고령자가 바꾼 보호자 호칭. 서버에 호칭 변경 API 가 생기기 전까지 폰에만 둠
+     * (생기면 서버 guardianLabel 로 보냄)
+     */
+    fun labelOverride(guardianId: String): String? = prefs.getString(KEY_LABEL + guardianId, null)
+
+    fun setLabelOverride(guardianId: String, label: String) {
+        prefs.edit().putString(KEY_LABEL + guardianId, label.trim()).apply()
+    }
+
     fun phoneFor(guardianId: String): String = prefs.getString(KEY_PHONE + guardianId, "").orEmpty()
 
     fun setPhone(guardianId: String, phone: String) {
@@ -30,7 +46,7 @@ internal class ElderSettings(context: Context) {
     }
 
     fun forget(guardianId: String) {
-        prefs.edit().remove(KEY_PHONE + guardianId).apply()
+        prefs.edit().remove(KEY_PHONE + guardianId).remove(KEY_LABEL + guardianId).apply()
     }
 
     /** 연결 전이라도 SOS 문자를 받을 보호자를 직접 등록 (예: 김준표, 010-1234-5678) */
@@ -62,6 +78,8 @@ internal class ElderSettings(context: Context) {
         private const val KEY_SOS = "sos_enabled"
         private const val KEY_SENSITIVE = "sensitive_alerts"
         private const val KEY_PHONE = "phone_"
+        private const val KEY_LABEL = "label_"
+        private const val KEY_DEVICE = "device_id"
         private const val KEY_MANUAL_NAME = "manual_name"
         private const val KEY_MANUAL_PHONE = "manual_phone"
 

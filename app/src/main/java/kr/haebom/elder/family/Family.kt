@@ -79,6 +79,18 @@ internal enum class DisconnectResult { DISCONNECTED, WRONG_CODE, NOT_LINKED, FAI
  * 결과는 모두 메인 스레드에서 콜백으로 돌려줍니다.
  */
 internal interface FamilyGateway {
+    /** 화면에 보여 줄 연결 방식 이름 (예: "실제 서버", "Mock") */
+    val backendName: String
+
+    /**
+     * 고령자 쪽 해제에 보호자 앱의 해제 확인 코드가 필요한지.
+     * 서버 #12 는 아직 코드를 받지 않아 서버 연결 중에는 false (서버에 요청해 둔 상태)
+     */
+    val requiresReleaseCode: Boolean get() = true
+
+    /** 서버에서 목록을 다시 받아 옴 (연결 변경 FCM 을 받았을 때, 화면에 들어왔을 때) */
+    fun refresh() = Unit
+
     /** 연결 목록·코드가 바뀔 때마다 부름 (처음 한 번 바로 부름) */
     fun observe(listener: () -> Unit): AutoCloseable
 
