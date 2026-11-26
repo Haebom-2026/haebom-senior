@@ -152,6 +152,11 @@ class GuideService : AccessibilityService() {
     private var lastScrollDir: String? = null
     private var lastTypeBox: String? = null
     private var lastWindowPkg: String? = null
+    private val keyboardPackages: Set<String> by lazy {
+        runCatching {
+            getSystemService(android.view.inputmethod.InputMethodManager::class.java).enabledInputMethodList.map { it.packageName }.toSet()
+        }.getOrDefault(emptySet())
+    }
     private val homePackages: Set<String> by lazy {
         packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
             .mapNotNull { it.activityInfo?.packageName }.filter { it != "android" }.toSet()
@@ -167,7 +172,9 @@ class GuideService : AccessibilityService() {
     private fun recordAction(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         val now = SystemClock.uptimeMillis()
-        val windowChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName
+        // 해봄·시스템 UI(알림창)·키보드 창은 화면이 바뀐 것으로 보지 않음 (홈 화면 위에 떴다 사라지면 홈으로 두 번 셈)
+        val windowChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName &&
+            pkg != SYSTEM_UI && pkg !in keyboardPackages
         val enteredHome = windowChanged && pkg in homePackages && lastWindowPkg != null && lastWindowPkg !in homePackages
         if (windowChanged) {
             lastWindowAt = now
@@ -263,7 +270,9 @@ class GuideService : AccessibilityService() {
                 stepId = stepId,
                 type = reply.type,
                 box = node?.bounds,
-                label = node?.let { (it.text?.trim()?.takeIf(String::isNotEmpty) ?: it.description?.trim()).orEmpty() }.orEmpty(),
+                // 서버가 짚은 글자 그대로 (노드 글자가 줄 전체일 때가 있음: '화면 밝기 10% 낮추기 배터리 > 절전 모드')
+                label = reply.targetText?.trim()?.takeIf(String::isNotEmpty)
+                    ?: node?.let { (it.text?.trim()?.takeIf(String::isNotEmpty) ?: it.description?.trim()).orEmpty() }.orEmpty(),
                 dir = reply.dir,
                 nav = reply.nav,
                 fingerprint = captured.fingerprint,
@@ -371,6 +380,12 @@ class GuideService : AccessibilityService() {
         val done = fillEditableAt(anchor, text)
         autofill.hide()
         if (done) {
+            // 어르신이 '넣기'를 누른 것도 입력 행동 (앱이 넣은 글자는 접근성 입력 이벤트가 오지 않는 앱이 있음, 2026-11-27 설정 검색)
+            stepsFor(GuideSession.active)?.let { s ->
+                lastTouchAt = SystemClock.uptimeMillis()
+                lastTypeBox = intArrayOf(anchor.left, anchor.top, anchor.right, anchor.bottom).joinToString(",")
+                logAction(s.record(LastAction.TYPE, "", intArrayOf(anchor.left, anchor.top, anchor.right, anchor.bottom)))
+            }
             GuideSession.markQueryFilled()
             scheduleLater(FILL_SETTLE_MS)
         } else {
@@ -2450,6 +2465,7 @@ class GuideService : AccessibilityService() {
     private companion object {
         /** 누르기·화면 바뀜 직후 이만큼은 스크롤을 행동으로 보지 않음 (목록이 불러지며 움직임) */
         const val SCROLL_QUIET_MS = 1_200L
+        const val SYSTEM_UI = "com.android.systemui"
         /** 한 번 미는 동안 이어지는 스크롤 이벤트 */
         const val SCROLL_JOIN_MS = 800L
         /** 한 칸에 이어서 쓰는 글자 */
