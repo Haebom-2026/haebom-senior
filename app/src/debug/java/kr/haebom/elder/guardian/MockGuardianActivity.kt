@@ -1,6 +1,7 @@
 package kr.haebom.elder.guardian
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -122,6 +123,7 @@ class MockGuardianActivity : Activity() {
             guardian,
             getString(R.string.mock_elder_label),
             getString(if (guardian == GUARDIAN_A) R.string.mock_a_label else R.string.mock_b_label),
+            getString(if (guardian == GUARDIAN_A) R.string.mock_guardian_a else R.string.mock_guardian_b),
         )
         if (linked != null) {
             codeUsed = true
@@ -160,7 +162,7 @@ class MockGuardianActivity : Activity() {
         if (forElder.isEmpty()) elderLinks.message(R.string.mock_no_links)
         for (link in forElder) {
             elderLinks.button(getString(R.string.mock_elder_link, link.labelForElder)) {
-                repo.disconnect(link.elderId, link.guardianId)
+                confirmElderDisconnect(link)
             }
         }
 
@@ -175,6 +177,17 @@ class MockGuardianActivity : Activity() {
         updateCountdowns()
     }
 
+    /** 고령자 쪽 해제(#12)는 한 번 더 묻고, 그 보호자와의 연결 한 쌍만 끊습니다. */
+    private fun confirmElderDisconnect(link: FamilyLink) {
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.mock_disconnect_confirm, link.labelForElder))
+            .setPositiveButton(R.string.mock_disconnect_yes) { _, _ ->
+                repo.disconnect(link.elderId, link.guardianId)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun updateCountdowns() {
         val currentCode = code
         codeStatus.text = if (currentCode != null && remaining(currentCode.expiresAt) > 0) {
@@ -186,8 +199,12 @@ class MockGuardianActivity : Activity() {
         elderStatus.text = when (request?.status) {
             null -> getString(R.string.mock_status_none)
             ApprovalStatus.PENDING -> getString(R.string.mock_status_pending, remaining(request.expiresAt))
-            ApprovalStatus.APPROVED -> getString(R.string.mock_status_approved)
-            ApprovalStatus.REJECTED -> getString(R.string.mock_status_rejected)
+            ApprovalStatus.APPROVED -> getString(
+                R.string.mock_status_approved, repo.guardianLabelForElder(ELDER, request.respondedBy),
+            )
+            ApprovalStatus.REJECTED -> getString(
+                R.string.mock_status_rejected, repo.guardianLabelForElder(ELDER, request.respondedBy),
+            )
             ApprovalStatus.EXPIRED -> getString(R.string.mock_status_expired)
             ApprovalStatus.CANCELLED -> getString(R.string.mock_status_cancelled)
         }

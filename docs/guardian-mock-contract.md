@@ -18,8 +18,77 @@
 ```
 
 - `elderLabel`은 보호자 앱에서 어르신을 부르는 호칭입니다. 비어 있으면 `elderName`을 표시합니다.
-- `guardianLabel`은 고령자 앱에서 보호자를 부르는 호칭입니다. 비어 있으면 가용한 보호자 표시 이름을 사용합니다.
-- 기존 `relationship` 값은 보존합니다. 지침서의 예시는 ‘딸·아들’을 쓰고, 보호자 앱의 기존 모델 주석은 이전 값을 `elderLabel`로 읽는다고 적혀 있습니다. 데이터가 어느 방향으로 저장됐는지 서버 담당자가 확인한 뒤 변환을 정합니다. 새 Mock 연결은 방향이 명확한 두 필드를 사용합니다.
+- `guardianLabel`은 고령자 앱에서 보호자를 부르는 호칭입니다. 비어 있으면 보호자 이름(`guardianName`, 있을 때), 그것도 없으면 "보호자"로 표시합니다.
+- **호칭 필드는 `elderLabel`·`guardianLabel` 두 개로 통일합니다.** 고령자 앱은 `relationship`을 더 이상 읽거나 쓰지 않습니다(Mock 모델에서도 제거).
+- 서버에 이미 `relationship`으로 저장된 데이터가 있다면, 보호자 앱 기존 모델 주석대로 `elderLabel`로 옮기는 것을 제안합니다. 옮기는 방법과 시점은 서버 담당자가 정합니다.
+
+## 보호자 앱 확인 요청 항목
+
+| 확인 항목 | 고령자 앱 상태 | 확인 방법 |
+| --- | --- | --- |
+| 연결 코드 발급 | 구현(Mock). 6자리 문자열, 10분·1회, 재발급 시 이전 코드 무효 | 연습 화면 **6자리 연결 코드 발급**, 테스트 `codesUseSixDigits…` |
+| 다대다(M:N) 연결 | 구현(Mock). 어르신 1명에 보호자 여러 명, 보호자 1명에 어르신 여러 명. 연결 1쌍 = 문서 1개 | 보호자 A·B 연결, 테스트 `multipleLinks…`, `disconnectingOneGuardian…` |
+| 연결 해제 실시간 반영 | 구현(Mock). 어느 쪽에서 끊어도 그 한 쌍만 양쪽 목록에서 바로 빠짐. 고령자 쪽은 "연결을 끊을까요?" 확인 후 해제 | 연습 화면 양쪽 해제 버튼, 테스트 `multipleLinks…Disconnection` |
+| 승인·거절 결과 수신 | 구현(Mock). `approvals/{id}`의 `status` 변화를 받아 반영하고, 응답한 보호자를 `guardianLabel`로 안내 ("큰딸 님이 허락했어요") | 연습 화면 승인 요청 → 보호자 보기에서 승인/거절, 테스트 `approvalResultNames…` |
+| 호칭 필드 | `elderLabel`·`guardianLabel`로 통일, `relationship` 사용 안 함 | 위 "연결과 호칭" |
+
+실제 네트워크 전달(두 기기 사이)은 서버를 연결한 뒤 함께 확인합니다.
+
+## 요청·응답 데이터 형식 (연결·해제·승인·거절)
+
+기존 엔드포인트와 다대다 구조는 바꾸지 않습니다. 사용자 ID는 본문에 넣지 않고 인증 토큰으로 식별합니다. 시간은 ISO 8601 UTC 문자열입니다.
+
+### 연결
+
+```http
+POST /v1/elder/connect-codes            (#11, 고령자)
+Idempotency-Key: <UUID>
+{}
+→ 200 { "code": "000042", "expiresAt": "2026-11-26T06:10:00Z" }
+```
+
+```http
+보호자 연결 (#14, 보호자) — 경로·HTTP 본문은 기존 서버 규격을 따름
+{ "code": "000042", "elderLabel": "어머니", "guardianLabel": "큰딸" }
+→ 연결 결과 = 아래 links 문서 1개
+```
+
+연결되면 `links/{elderId_guardianId}`가 생기고, 고령자 앱은 `links` where `elderId == 내 uid`로 목록을 받습니다.
+
+### 해제
+
+```http
+DELETE /v1/elder/links/{guardianId}      (#12, 고령자)
+→ 200 (고령자 앱은 본문을 보지 않음. 제안: { "ok": true })
+
+보호자 해제 (#15, 보호자) — 상대 elderId 지정, HTTP 형식은 기존 서버 규격
+```
+
+해제 = 해당 `links` 문서 삭제. 양쪽 앱은 `links` 구독으로 바로 목록에서 지웁니다. 다른 보호자와의 연결은 그대로입니다.
+
+### 승인 요청·취소 (고령자)
+
+```http
+POST /v1/elder/approvals                 (#9)
+Idempotency-Key: <UUID>
+{ "packageName": "kr.go.minwon.m", "appName": "정부24", "action": "guide_gov24_auth", "category": "public" }
+→ 200 { "result": "created", "approvalId": "a_789", "expiresAt": "2026-11-26T06:05:00Z" }
+→ 200 { "result": "no_guardians" }
+
+POST /v1/elder/approvals/{approvalId}/cancel   (#10)
+{}
+→ 200 { "status": "cancelled" }   (이미 끝난 요청이면 409/404 → 고령자 앱은 무시)
+```
+
+### 승인·거절 (보호자 #13) → 고령자 앱이 받는 것
+
+보호자 앱의 HTTP 본문은 기존 서버 규격을 따릅니다. 고령자 앱은 `approvals/{approvalId}` 문서를 구독하고 아래 세 필드만 봅니다.
+
+| 필드 | 값 | 고령자 앱 동작 |
+| --- | --- | --- |
+| `status` | `approved` / `rejected` / `expired` / `cancelled` | 안내 계속 / 멈춤 / 멈춤 / 멈춤 |
+| `respondedBy` | 응답한 보호자 uid | 그 연결의 `guardianLabel`로 "큰딸 님이 허락했어요" |
+| `respondedAt` | 응답 시각 | `createdAt` ~ `expiresAt` 안의 응답만 반영 |
 
 ## 기존 작업별 데이터
 

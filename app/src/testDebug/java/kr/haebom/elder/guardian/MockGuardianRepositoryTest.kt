@@ -18,14 +18,14 @@ class MockGuardianRepositoryTest {
         val second = repository.issueCode("elder")
         assertEquals("000042", first.code)
         assertNotEquals(first.code, second.code)
-        assertNull(repository.connect(first.code, "a", null, null, null))
-        assertNotNull(repository.connect(second.code, "a", "어머니", "수연", "딸"))
-        assertNull(repository.connect(second.code, "b", null, null, null))
+        assertNull(repository.connect(first.code, "a", null, null))
+        assertNotNull(repository.connect(second.code, "a", "어머니", "큰딸", "김수연"))
+        assertNull(repository.connect(second.code, "b", null, null))
 
         val expiring = repository.issueCode("elder")
         assertEquals(time + 600_000, expiring.expiresAt)
         time = expiring.expiresAt
-        assertNull(repository.connect(expiring.code, "b", null, null, null))
+        assertNull(repository.connect(expiring.code, "b", null, null))
     }
 
     @Test
@@ -53,15 +53,51 @@ class MockGuardianRepositoryTest {
     }
 
     @Test
-    fun directionalLabelsAreDistinctAndLegacyRelationshipIsPreserved() {
+    fun directionalLabelsAreDistinctAndFallBackWithoutRelationship() {
         val outgoing = link("elder", "ga", elderLabel = "엄마", guardianLabel = "큰딸")
         assertEquals("큰딸", outgoing.labelForElder)
         assertEquals("엄마", outgoing.labelForGuardian)
 
-        val legacy = link("elder", "gb")
-        assertEquals("gb", legacy.labelForElder)
-        assertEquals("딸", legacy.relationship)
-        assertEquals("elder", legacy.labelForGuardian)
+        val named = link("elder", "gb", guardianLabel = "  ", guardianName = "김수연")
+        assertEquals("김수연", named.labelForElder)
+        assertEquals("elder", named.labelForGuardian)
+
+        val unnamed = link("elder", "gc")
+        assertEquals(FamilyLink.DEFAULT_GUARDIAN_LABEL, unnamed.labelForElder)
+    }
+
+    @Test
+    fun approvalResultNamesTheRespondingGuardianForTheElder() {
+        link("elder", "a", guardianLabel = "큰딸")
+        link("elder", "b", guardianLabel = "아들")
+        val approval = requireNotNull(request("elder"))
+        val receiver = MockApprovalReceiver(now = { time })
+        receiver.begin(approval)
+        val observer = repository.observe { receiver.receive(repository.approval(approval.id)) }
+
+        time += 20_000
+        assertNotNull(repository.respond(approval.id, "b", approve = false))
+        val result = requireNotNull(receiver.current)
+        assertEquals(ApprovalStatus.REJECTED, result.status)
+        assertEquals(time, result.respondedAt)
+        assertEquals("아들", repository.guardianLabelForElder("elder", result.respondedBy))
+
+        assertTrue(repository.disconnect("elder", "b"))
+        assertEquals(
+            FamilyLink.DEFAULT_GUARDIAN_LABEL,
+            repository.guardianLabelForElder("elder", result.respondedBy),
+        )
+        observer.close()
+    }
+
+    @Test
+    fun disconnectingOneGuardianKeepsTheOthersForNewApprovals() {
+        link("elder", "a")
+        link("elder", "b")
+        assertTrue(repository.disconnect("elder", "a"))
+        assertEquals(setOf("b"), requireNotNull(request("elder")).guardianIds)
+        assertTrue(repository.disconnect("elder", "b"))
+        assertNull(request("elder"))
     }
 
     @Test
@@ -120,8 +156,9 @@ class MockGuardianRepositoryTest {
         guardianId: String,
         elderLabel: String? = null,
         guardianLabel: String? = null,
+        guardianName: String? = null,
     ): FamilyLink = requireNotNull(repository.connect(
-        repository.issueCode(elderId).code, guardianId, elderLabel, guardianLabel, "딸",
+        repository.issueCode(elderId).code, guardianId, elderLabel, guardianLabel, guardianName,
     ))
 
     private fun request(elderId: String): GuardianApproval? =

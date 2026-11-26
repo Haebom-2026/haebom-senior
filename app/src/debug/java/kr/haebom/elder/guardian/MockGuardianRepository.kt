@@ -2,21 +2,37 @@ package kr.haebom.elder.guardian
 
 import java.security.SecureRandom
 
+/**
+ * links/{elderId_guardianId} 한 쌍. 호칭은 방향이 정해진 두 필드만 씁니다 (보호자 앱과 통일).
+ * - elderLabel: 보호자 앱에서 어르신을 부르는 호칭 (예: 어머니)
+ * - guardianLabel: 고령자 앱에서 보호자를 부르는 호칭 (예: 큰딸)
+ * 예전 relationship 필드는 고령자 앱이 읽거나 쓰지 않습니다.
+ */
 internal data class FamilyLink(
     val elderId: String,
     val guardianId: String,
     val elderName: String,
     val elderLabel: String?,
     val guardianLabel: String?,
-    val relationship: String?,
     val connectedAt: Long,
+    val guardianName: String? = null,
 ) {
     val id: String
         get() = "${elderId}_$guardianId"
+
+    /** 고령자 앱 화면·음성에 쓰는 보호자 호칭: guardianLabel → guardianName → "보호자" */
     val labelForElder: String
-        get() = guardianLabel?.trim()?.takeIf { it.isNotEmpty() } ?: guardianId
+        get() = guardianLabel.clean() ?: guardianName.clean() ?: DEFAULT_GUARDIAN_LABEL
+
+    /** 보호자 앱 화면에 쓰는 어르신 호칭: elderLabel → elderName */
     val labelForGuardian: String
-        get() = elderLabel?.trim()?.takeIf { it.isNotEmpty() } ?: elderName
+        get() = elderLabel.clean() ?: elderName
+
+    companion object {
+        const val DEFAULT_GUARDIAN_LABEL = "보호자"
+
+        private fun String?.clean(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
+    }
 }
 
 internal data class ConnectionCode(val code: String, val expiresAt: Long)
@@ -87,7 +103,7 @@ internal class MockGuardianRepository(
         guardianId: String,
         elderLabel: String?,
         guardianLabel: String?,
-        relationship: String? = null,
+        guardianName: String? = null,
     ): FamilyLink? {
         val currentTime = now()
         val issued = codes.entries.firstOrNull {
@@ -98,13 +114,26 @@ internal class MockGuardianRepository(
         val key = elderId to guardianId
         if (key in links) return null
         val connection = FamilyLink(
-            elderId, guardianId, elderId, elderLabel, guardianLabel, relationship, currentTime,
+            elderId = elderId,
+            guardianId = guardianId,
+            elderName = elderId,
+            elderLabel = elderLabel,
+            guardianLabel = guardianLabel,
+            connectedAt = currentTime,
+            guardianName = guardianName,
         )
         codes.remove(elderId)
         links[key] = connection
         notifyObservers()
         return connection
     }
+
+    /**
+     * 승인·거절한 보호자를 고령자 앱 호칭으로 바꿈 ("큰딸이 허락했어요").
+     * 응답 뒤에 연결이 해제됐으면 기본 호칭을 씁니다.
+     */
+    fun guardianLabelForElder(elderId: String, guardianId: String?): String =
+        guardianId?.let { links[elderId to it]?.labelForElder } ?: FamilyLink.DEFAULT_GUARDIAN_LABEL
 
     fun disconnect(elderId: String, guardianId: String): Boolean {
         val removed = links.remove(elderId to guardianId) != null
