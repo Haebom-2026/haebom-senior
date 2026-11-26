@@ -58,4 +58,24 @@ class PrefilledTest {
         assertTrue(marked[2].filled)
         assertEquals("19500315", marked[2].text)
     }
+
+    @Test
+    fun savedLoginWindowsAreLeftToTheServerQuestion() {
+        // 크롬 "저장된 비밀번호를 사용하시겠습니까?" 창 (2026-11-27 서버 요청 #10, com.android.chrome)
+        val chrome = listOf(
+            label("저장된 비밀번호를 사용하시겠습니까?", 900),
+            label("nid.naver.com에 로그인합니다", 980),
+            field(1100, "haebom"),
+            ScreenNode(className = "EditText", bounds = intArrayOf(60, 1260, 1020, 1400), editable = true, filled = true, secret = true),
+            ScreenNode(text = "로그인", className = "Button", clickable = true, bounds = intArrayOf(60, 1500, 1020, 1640)),
+        )
+        assertTrue(Prefilled.isSavedLogin(chrome))
+        assertTrue(Prefilled.isSavedLogin(listOf(label("Samsung Pass로 로그인", 900), field(1100, "a"), field(1300, "b"))))
+        assertTrue(Prefilled.isSavedLogin(listOf(ScreenNode(description = "Google 비밀번호 관리자"), field(1100, "a"))))
+        // 보통 로그인 화면·신청서는 그대로 물음
+        val naver = listOf(label("아이디", 600), field(674, "haebomtest"), label("비밀번호", 840), field(914, null))
+        assertFalse(Prefilled.isSavedLogin(naver))
+        // 어르신이 칸에 쓴 글자는 보지 않음
+        assertFalse(Prefilled.isSavedLogin(listOf(field(674, "저장된 계정"), field(914, "x"))))
+    }
 }

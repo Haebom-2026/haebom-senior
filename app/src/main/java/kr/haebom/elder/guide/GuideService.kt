@@ -1507,6 +1507,11 @@ class GuideService : AccessibilityService() {
         if (form.isEmpty() || !prefilledForms.add(form)) return null
         val filled = Prefilled.filledOnArrival(cap.nodes)
         if (filled.isEmpty()) return null
+        // 저장된 계정으로 로그인하는 창: 서버가 "어르신 계정이 맞으세요?" 를 물음 (같은 화면에서 질문 두 번 안 함)
+        if (Prefilled.isSavedLogin(cap.nodes)) {
+            android.util.Log.d(TAG, "들어오니 채워진 칸 ${filled.size}개: 저장된 계정 창이라 묻지 않음")
+            return null
+        }
         // 칸 이름과 (보이는 칸이면) 적힌 글자. 비밀 칸·비밀 칸 있는 화면은 글자 없이 이름만
         val list = filled.take(3).joinToString(", ") { field ->
             val label = AuthGuide.fieldLabel(field, cap.nodes)

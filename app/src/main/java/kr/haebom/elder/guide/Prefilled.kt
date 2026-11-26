@@ -18,6 +18,11 @@ internal object Prefilled {
     private val DATE_PATTERN = Regex("""(?i)y{2,4}[./-]?m{1,2}[./-]?d{1,2}|m{2}d{2}""")
     /** 0·x·* 만으로 된 번호 모양 (000-0000-0000, xxxxxx, ******) */
     private val BLANK_NUMBER = Regex("""^[0xX*\-. ]{4,}$""")
+    /** 저장된 계정·비밀번호로 바로 로그인하는 창의 글자 (띄어쓰기 없이, 소문자) */
+    private val SAVED_LOGIN_WORDS = listOf(
+        "저장된비밀번호", "비밀번호를사용하시겠습니까", "저장된계정", "저장된로그인", "삼성패스", "samsungpass",
+        "비밀번호관리자", "passwordmanager", "savedpassword", "usesavedpassword",
+    )
 
     /** 칸의 글자가 어르신이 쓴 값이 아니라 예시·안내 글자로 보이는지 (비밀번호 칸의 ●●● 에는 쓰지 않음) */
     fun looksLikeExample(text: String?, hint: String?): Boolean {
@@ -40,6 +45,17 @@ internal object Prefilled {
     fun formKey(packageName: String, nodes: List<ScreenNode>): String {
         val labels = nodes.filter { it.editable }.map { AuthGuide.fieldLabel(it, nodes) }.sorted()
         return if (labels.size < 2) "" else packageName + "|" + labels.joinToString("|")
+    }
+
+    /**
+     * 크롬·삼성 패스·구글 비밀번호 관리자처럼 저장된 계정으로 바로 로그인하는 창인지 (칸 글자는 보지 않고 안내 글자만).
+     * 이런 창은 "직접 쓰신 건가요?" 를 묻지 않음: 서버(guide@v4.7)가 "어르신 계정이 맞으세요?" 를 물으므로 질문이 두 번 되지 않게
+     */
+    fun isSavedLogin(nodes: List<ScreenNode>): Boolean = nodes.any { node ->
+        !node.editable && listOfNotNull(node.text, node.description).any { label ->
+            val n = label.lowercase(Locale.ROOT).filterNot(Char::isWhitespace)
+            SAVED_LOGIN_WORDS.any { it in n }
+        }
     }
 
     /** 칸 하나의 열쇠: 앱 + 칸 이름 */
