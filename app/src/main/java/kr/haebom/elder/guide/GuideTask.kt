@@ -47,6 +47,10 @@ internal enum class GuideTask(val appPackage: String?) {
             GOV24 -> AUTHENTICATION + GOV24_CERTIFICATE + GOV24_APPLY
         }
 
+    /** 해봄이 검색어를 대신 넣어 줄 수 있는 입력 칸 (resource id 끝부분) */
+    val searchFieldIds: Set<String>
+        get() = if (this == YOUTUBE) setOf("search_edit_text") else emptySet()
+
     fun findStep(controls: List<ScreenControl>, hasPasswordField: Boolean): GuideStep {
         if (hasPasswordField || (this == GOV24 && controls.any { it.matches(AUTHENTICATION) })) {
             return GuideStep(R.string.guide_authentication_stop)

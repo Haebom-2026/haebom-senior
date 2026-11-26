@@ -65,4 +65,15 @@ class OverlayPlannerTest {
         clock += GuideCaption.HEARD_MS
         assertNull(GuideCaption.active())
     }
+
+    @Test
+    fun captionMovesUpWhenNoTargetButAButtonSitsUnderTheBottomCaption() {
+        val stickyApply = Box(450, 2250, 630, 2330) // 화면 아래 고정 "발급하기"
+        assertTrue(OverlayPlanner.captionAtTop(h, null, null, listOf(stickyApply), captionHeight = 250, inset = 20))
+        // 위 자리에도 단추가 있으면 그대로 아래
+        val header = Box(0, 40, 200, 150)
+        assertFalse(OverlayPlanner.captionAtTop(h, null, null, listOf(stickyApply, header), captionHeight = 250, inset = 20))
+        // 가운데 단추는 상관없음
+        assertFalse(OverlayPlanner.captionAtTop(h, null, null, listOf(Box(100, 1000, 300, 1100)), captionHeight = 250, inset = 20))
+    }
 }

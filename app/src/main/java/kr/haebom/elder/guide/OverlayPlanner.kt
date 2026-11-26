@@ -23,10 +23,28 @@ internal data class Box(val left: Int, val top: Int, val right: Int, val bottom:
  */
 internal object OverlayPlanner {
 
-    fun captionAtTop(screenHeight: Int, target: Box?, keyboardTop: Int?): Boolean {
-        if (target == null) return false
+    /**
+     * 자막을 위로 올릴지.
+     * - 짚은 단추([target])가 있으면 그 단추 기준 (화면 아래쪽이면 위로)
+     * - 짚은 단추가 없으면, 아래 자막 자리에 작업 단추 후보([others], 예: 화면 아래 고정 "발급하기")가
+     *   있고 위 자리는 비어 있을 때 위로. 그래야 어르신이 단추를 직접 보고 누를 수 있음
+     * [captionHeight]·[inset] 은 자막 막대 높이와 화면 끝에서 띄우는 거리.
+     */
+    fun captionAtTop(
+        screenHeight: Int,
+        target: Box?,
+        keyboardTop: Int?,
+        others: List<Box> = emptyList(),
+        captionHeight: Int = 0,
+        inset: Int = 0,
+    ): Boolean {
         val usableBottom = keyboardTop ?: screenHeight
-        return target.centerY > usableBottom * 0.55f
+        if (target != null) return target.centerY > usableBottom * 0.55f
+        if (others.isEmpty() || captionHeight <= 0) return false
+        val bottomZone = captionBox(1, screenHeight, captionHeight, atTop = false, keyboardTop = keyboardTop, inset = inset)
+        val topZone = captionBox(1, screenHeight, captionHeight, atTop = true, keyboardTop = keyboardTop, inset = inset)
+        fun overlapsRows(zone: Box, box: Box) = box.top < zone.bottom && zone.top < box.bottom
+        return others.any { overlapsRows(bottomZone, it) } && others.none { overlapsRows(topZone, it) }
     }
 
     /** 자막 막대가 차지할 곳 */

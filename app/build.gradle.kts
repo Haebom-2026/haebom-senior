@@ -30,6 +30,11 @@ android {
         buildConfig = true
     }
 
+    // 단위 테스트에서 android.graphics.Rect 같은 클래스를 만들 수 있게 (값은 0/false)
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     buildTypes {
         // 앱이 부르는 서버 주소: debug 는 dev, release 는 prod 가 정해지면 넣음 (비어 있으면 서버 연동 꺼짐)
         debug {

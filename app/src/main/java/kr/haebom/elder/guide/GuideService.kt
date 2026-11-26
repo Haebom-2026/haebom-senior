@@ -57,6 +57,8 @@ class GuideService : AccessibilityService() {
     private var captionAtTop: Boolean? = null
     private var captionBox: Box? = null
     private var keyboardTop: Int? = null
+    /** 지금 화면의 작업 단추 후보들 (짚은 단추가 없을 때 자막·마이크가 가리지 않게) */
+    private var candidateBoxes: List<Box> = emptyList()
 
     /** 지금 화면에 맞는 안내 자막 (잠깐 자막이 없을 때 보임) */
     private var guideMessage: Pair<String, GuideCaption.Tone>? = null
@@ -142,6 +144,7 @@ class GuideService : AccessibilityService() {
         val foreground = activeScreenPackage()
         syncFloatingControls(foreground)
 
+        candidateBoxes = emptyList()
         val decision = decide(foreground)
         guideMessage = decision.message
         if (decision.target != highlightedTarget) {
@@ -175,6 +178,7 @@ class GuideService : AccessibilityService() {
         leftAppSince = 0L
 
         val (screen, root) = readGuideScreen(active.task) ?: return Decision(null, guideMessage)
+        candidateBoxes = screen.controls.filter { it.clickable }.map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
         val step = active.task.findStep(screen.controls, screen.hasPasswordField)
         if (step.caption == R.string.guide_authentication_stop) {
             noTargetSince = 0L
@@ -368,7 +372,12 @@ class GuideService : AccessibilityService() {
 
     private fun placeCaption() {
         val host = captionHost ?: return
-        val atTop = OverlayPlanner.captionAtTop(screenSize().y, highlightedTarget?.box(), keyboardTop)
+        val atTop = OverlayPlanner.captionAtTop(
+            screenSize().y, highlightedTarget?.box(), keyboardTop,
+            others = candidateBoxes,
+            captionHeight = captionBox?.height ?: dp(DEFAULT_CAPTION_HEIGHT_DP),
+            inset = dp(24),
+        )
         val params = captionParams(atTop)
         captionAtTop = atTop
         getSystemService(WindowManager::class.java).updateViewLayout(host, params)
@@ -413,6 +422,7 @@ class GuideService : AccessibilityService() {
         val screen = screenSize()
         val areas = listOfNotNull(
             highlightedTarget?.box()?.inflate(dp(28)),
+            *candidateBoxes.takeIf { highlightedTarget == null }.orEmpty().toTypedArray(),
             captionBox.takeIf { captionHost != null },
             keyboardTop?.let { Box(0, it, screen.x, screen.y) },
         )
@@ -509,6 +519,7 @@ class GuideService : AccessibilityService() {
         const val SCREEN_UPDATE_INTERVAL_MS = 500L
         const val LEFT_APP_GRACE_MS = 1_500L
         const val SCROLL_TIP_AFTER_MS = 8_000L
+        const val DEFAULT_CAPTION_HEIGHT_DP = 120
 
         /** 안내 중에 잠깐 떠도 "앱에서 나갔다"고 보지 않는 창 */
         val PASS_THROUGH = setOf(
