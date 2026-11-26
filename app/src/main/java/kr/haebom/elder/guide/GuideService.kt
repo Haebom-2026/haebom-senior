@@ -361,6 +361,8 @@ class GuideService : AccessibilityService() {
     private val aiHistory = ArrayDeque<String>()
     /** AI 가 방금 되물었음 ("어떤 영상을 찾을까요?"): 다음에 들은 말은 그 대답으로 이어 감 */
     private var aiAsked = false
+    /** 아직 읽지 않은 AI 의 물음 (읽고 나면 자동으로 듣기) */
+    private var aiAskSay: String? = null
     private var aiDoneScheduled = false
     /** 밀기 안내 중 찾는 글자 (화면에 나타나면 서버를 다시 부르지 않고 바로 짚음) */
     private var aiSeek: String? = null
@@ -377,6 +379,8 @@ class GuideService : AccessibilityService() {
         aiHistory.clear()
         aiDoneScheduled = false
         aiAsked = false
+        aiAskSay = null
+        aiSeenFingerprint = null
         aiSeek = null
         aiSeekFoundOn = null
         aiLastSwipe = null
@@ -395,9 +399,24 @@ class GuideService : AccessibilityService() {
         // 밀다가 찾던 글자가 나타나면 바로 짚음 (서버를 부르지 않음)
         seekDecision(captured, windowId, foreground)?.let { return it }
 
-        if (aiPending?.fingerprint != fingerprint) requestAi(active, captured, fingerprint)
+        // 화면이 바뀌는 중(빈 화면)이거나 막 바뀌었으면 잠시 기다렸다가 물음 (같은 화면을 두 번 묻지 않게)
+        val now = SystemClock.uptimeMillis()
+        if (fingerprint != aiSeenFingerprint) {
+            aiSeenFingerprint = fingerprint
+            aiSeenAt = now
+        }
+        val settled = now - aiSeenAt >= AI_SETTLE_MS
+        if (captured.nodes.isNotEmpty() && settled && aiPending?.fingerprint != fingerprint) {
+            requestAi(active, captured, fingerprint)
+        } else if (!settled) {
+            scheduleLater(AI_SETTLE_MS)
+        }
         return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO, aiLastSwipe)
     }
+
+    /** 마지막으로 본 화면 지문과 처음 본 시각 (화면이 멈췄는지 판단) */
+    private var aiSeenFingerprint: String? = null
+    private var aiSeenAt = 0L
 
     /** "다 됐어요" 자막을 잠시 보여 주고(읽어 주고) 안내를 마침 */
     private fun finishGuide(say: String): Decision {
@@ -460,6 +479,7 @@ class GuideService : AccessibilityService() {
         val reply = (outcome as? AiOutcome.Reply)?.reply
         val knownTask = GuideSession.active?.task != null
         aiAsked = reply?.type == AiReply.ASK && !knownTask
+        aiAskSay = reply?.say?.takeIf { aiAsked && it.isNotBlank() }
         if (reply == null || reply.isFallback || (reply.type == AiReply.ASK && knownTask)) {
             // 앱이 아는 일인데 AI 가 되묻기만 하면(예: 정부24 "무엇을 도와드릴까요?") 앱의 안내로 계속
             aiFailedFingerprint = fingerprint
@@ -693,7 +713,18 @@ class GuideService : AccessibilityService() {
         } else if (message.first != spokenGuide) {
             spokenGuide = message.first
             // "살펴보고 있어요"는 화면이 바뀔 때마다 뜨므로 읽지 않음
-            if (message.first != getString(R.string.caption_ai_waiting)) speak(message.first)
+            if (message.first == aiAskSay) {
+                // AI 의 물음: 다 읽은 뒤 바로 대답을 들음 (단추를 누르지 않아도 되게)
+                aiAskSay = null
+                val serial = GuideSession.serial
+                speak(message.first) {
+                    if (GuideSession.serial == serial && aiAsked && !listener.isListening) {
+                        startListening(fallbackToWindow = false)
+                    }
+                }
+            } else if (message.first != getString(R.string.caption_ai_waiting)) {
+                speak(message.first)
+            }
         }
     }
 
@@ -840,16 +871,21 @@ class GuideService : AccessibilityService() {
     /**
      * 마이크 단추
      * - 듣는 중: 듣기 종료
-     * - 안내 중: 멈추기 ↔ 이어서 (천천히 따라 하실 수 있게)
-     * - 그 밖: 지금 화면 그대로 듣기 시작
+     * - 그 밖(안내 중이면 "다시 말하기"): 지금 화면 그대로 듣기 시작
      */
     private fun onMicrophone() {
         if (listener.isListening) {
             stopListening(announce = true)
             return
         }
+        startListening(fallbackToWindow = true)
+    }
+
+    /** 지금 화면 그대로 듣기 시작. [fallbackToWindow] 면 바로 들을 수 없을 때 말하기 창을 엶 */
+    private fun startListening(fallbackToWindow: Boolean) {
         val foreground = activeScreenPackage()
         if (!listener.canListenInPlace()) {
+            if (!fallbackToWindow) return
             // 마이크 권한이 아직 없거나 기기 내 인식이 없으면 예전처럼 말하기 창에서
             openInput(sos = false, foreground = foreground)
             return
@@ -882,7 +918,7 @@ class GuideService : AccessibilityService() {
         })
         if (started) {
             syncMicMode()
-        } else {
+        } else if (fallbackToWindow) {
             openInput(sos = false, foreground = foreground)
         }
     }
@@ -951,9 +987,9 @@ class GuideService : AccessibilityService() {
         pkg
     }
 
-    private fun speak(text: String) {
+    private fun speak(text: String, done: (() -> Unit)? = null) {
         if (voice == null) voice = GuideVoice(this)
-        voice?.speak(text)
+        voice?.speak(text, done)
     }
 
     private fun scheduleLater(delayMs: Long) {
@@ -1000,6 +1036,8 @@ class GuideService : AccessibilityService() {
         const val FILL_SETTLE_MS = 700L
         /** AI 가 "다 됐어요"라고 한 뒤 자막을 잠시 보여 주고 안내를 마침 */
         const val AI_DONE_LINGER_MS = 6_000L
+        /** 화면이 이만큼 그대로일 때 AI 에 물음 */
+        const val AI_SETTLE_MS = 700L
         /** "듣고 있어요" 자막 (인식이 끝나면 다른 자막으로 바뀜) */
         const val LISTEN_CAPTION_MS = 15_000L
         const val DEFAULT_CAPTION_HEIGHT_DP = 120
