@@ -6,11 +6,13 @@ import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.text.InputType
+import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
 import android.widget.EditText
@@ -40,6 +42,16 @@ class MainActivity : Activity() {
             updateGuideStatus()
         }
         findViewById<Button>(R.id.sos).setOnClickListener { openSos() }
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            findViewById<Button>(R.id.open_mock_guardian).apply {
+                visibility = View.VISIBLE
+                setOnClickListener {
+                    startActivity(Intent().setClassName(
+                        packageName, "kr.haebom.elder.guardian.MockGuardianActivity",
+                    ))
+                }
+            }
+        }
     }
 
     override fun onResume() {

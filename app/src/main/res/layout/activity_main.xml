@@ -90,5 +90,13 @@
             android:minHeight="56dp"
             android:text="@string/sos"
             android:textSize="18sp" />
+        <Button
+            android:id="@+id/open_mock_guardian"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:text="@string/open_mock_guardian"
+            android:textSize="18sp"
+            android:visibility="gone" />
     </LinearLayout>
 </ScrollView>
