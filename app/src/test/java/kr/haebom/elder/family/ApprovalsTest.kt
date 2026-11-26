@@ -95,4 +95,13 @@ class ApprovalsTest {
         assertNull(wait.accept(ApprovalState("a1", ApprovalStatus.APPROVED)))
         assertNull(wait.expireIfLate(200_000L))
     }
+
+    @Test
+    fun aGuardianWithoutLabelOrNameIsCalledGuardian() {
+        assertEquals("큰딸 님", Approvals.responderName("큰딸"))
+        // 호칭·이름이 모두 비면 서버가 respondedByLabel 을 빼고 보냄
+        assertEquals("보호자 님", Approvals.responderName(null))
+        assertEquals("보호자 님", Approvals.responderName(" "))
+        assertNull(Approvals.fromPush(mapOf("kind" to "approval", "id" to "a1", "status" to "approved"))?.respondedByLabel)
+    }
 }

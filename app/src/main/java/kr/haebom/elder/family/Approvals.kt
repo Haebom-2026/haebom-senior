@@ -56,6 +56,13 @@ internal object Approvals {
     @Volatile
     var listener: ((ApprovalState) -> Unit)? = null
 
+    /**
+     * 대답한 가족을 부르는 말 ("큰딸 님"). 호칭·이름이 모두 비어 서버가 respondedByLabel 을 빼면 "보호자 님"
+     * (S1 의 guardianLabel → guardianName → "보호자" 와 같은 순서, 서버 담당 2026-11-27)
+     */
+    fun responderName(respondedByLabel: String?): String =
+        (respondedByLabel?.trim()?.takeIf { it.isNotEmpty() } ?: FamilyLink.DEFAULT_GUARDIAN_LABEL) + " 님"
+
     /** FCM data 메시지 → 결과 (모르는 상태·id 없음은 null) */
     fun fromPush(data: Map<String, String>): ApprovalState? {
         val id = data["id"]?.takeIf { it.isNotBlank() } ?: return null

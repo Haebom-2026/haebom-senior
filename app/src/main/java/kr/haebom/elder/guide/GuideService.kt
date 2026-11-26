@@ -1436,7 +1436,7 @@ class GuideService : AccessibilityService() {
         approvalOnApproved = null
         if (card.currentKey == APPROVAL_WAIT_KEY) card.hide()
         android.util.Log.d(TAG, "승인 결과: ${state.status}")
-        val who = state.respondedByLabel?.let { "$it 님" } ?: getString(R.string.approval_family)
+        val who = Approvals.responderName(state.respondedByLabel)
         when (state.status) {
             ApprovalStatus.APPROVED -> {
                 GuideCaption.post(getString(R.string.approval_approved, who), GuideCaption.Tone.DONE)
