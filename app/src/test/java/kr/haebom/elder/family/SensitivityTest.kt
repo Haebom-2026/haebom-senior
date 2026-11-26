@@ -72,7 +72,11 @@ class SensitivityTest {
         assertEquals(key, SensitiveAlerter.keyFor(finance, "com.kakaobank.channel"))
         assertTrue(SensitiveAlerter.claim(key))
         assertFalse(SensitiveAlerter.claim(key))
-        clock += Family.NOTICE_COOLDOWN_MS
+        // 5분 안에 다시 들어와도 한 번, 5분이 지나 들어오면 다시 알림
+        assertEquals(300_000L, Family.NOTICE_COOLDOWN_MS)
+        clock += Family.NOTICE_COOLDOWN_MS - 1
+        assertFalse(SensitiveAlerter.claim(key))
+        clock += 1
         assertTrue(SensitiveAlerter.claim(key))
     }
 }

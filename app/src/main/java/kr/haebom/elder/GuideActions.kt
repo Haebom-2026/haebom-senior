@@ -1,13 +1,13 @@
 package kr.haebom.elder
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import kr.haebom.elder.guide.GuideCaption
 import kr.haebom.elder.guide.GuideSession
 import kr.haebom.elder.guide.GuideTask
+import kr.haebom.elder.ui.ElderUi
 
 /** 메인 화면·말하기 창에서 안내 시작 (정부24는 확인 창을 먼저 띄움) */
 internal fun startGuide(
@@ -28,12 +28,11 @@ internal fun startGuide(
     }
 
     if (task == GuideTask.GOV24 && !(foregroundPackage != null && GuideTask.forPackage(foregroundPackage) == task)) {
-        AlertDialog.Builder(activity)
-            .setMessage(R.string.guide_gov24_limited)
-            .setPositiveButton(R.string.guide_continue) { _, _ -> launch() }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> done() }
-            .setOnCancelListener { done() }
-            .show()
+        ElderUi.dialog(
+            activity, activity.getString(R.string.guide_gov24_limited),
+            positive = activity.getString(R.string.guide_continue), onPositive = ::launch,
+            negative = activity.getString(R.string.cancel), onNegative = done,
+        )
     } else {
         launch()
     }
@@ -99,9 +98,5 @@ internal fun startAiGuide(context: Context, utterance: String, foregroundPackage
 }
 
 internal fun showGuideMessage(activity: Activity, message: Int, done: () -> Unit = {}) {
-    AlertDialog.Builder(activity)
-        .setMessage(message)
-        .setPositiveButton(android.R.string.ok) { _, _ -> done() }
-        .setOnCancelListener { done() }
-        .show()
+    ElderUi.dialog(activity, activity.getString(message), positive = activity.getString(R.string.ok), onPositive = done, onCancel = done)
 }

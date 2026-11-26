@@ -203,12 +203,12 @@ class GuideInputActivity : Activity() {
             handlingResult = true
             GuideCaption.post(getString(R.string.alert_scam), GuideCaption.Tone.WARN, durationMs = 12_000)
             SensitiveAlerter.send(this, assessment, appLabel(foregroundPackage), foregroundPackage.orEmpty())
-            AlertDialog.Builder(this)
-                .setMessage(R.string.alert_scam)
-                .setPositiveButton(R.string.sos) { _, _ -> openSms() }
-                .setNegativeButton(R.string.alert_stop) { _, _ -> finish() }
-                .setOnCancelListener { finish() }
-                .show()
+            ElderUi.dialog(
+                this, getString(R.string.alert_scam),
+                positive = getString(R.string.sos), onPositive = ::openSms,
+                negative = getString(R.string.alert_stop), onNegative = ::finish,
+                title = getString(R.string.alert_scam_title), positiveKind = ElderUi.Kind.DANGER,
+            )
             return
         }
         if (GuideTask.isHelpCommand(spoken)) {
@@ -258,19 +258,20 @@ class GuideInputActivity : Activity() {
             SensitiveAlerter.send(this, assessment, appLabel(target), target.orEmpty())
         }
         GuideCaption.post(getString(R.string.alert_finance_command), GuideCaption.Tone.WARN, durationMs = 10_000)
-        AlertDialog.Builder(this)
-            .setMessage(R.string.alert_finance_command)
-            .setPositiveButton(R.string.alert_continue) { _, _ ->
+        ElderUi.dialog(
+            this, getString(R.string.alert_finance_command),
+            positive = getString(R.string.alert_continue),
+            onPositive = {
                 val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
                 when {
                     launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
                 }
                 finish()
-            }
-            .setNegativeButton(R.string.alert_stop) { _, _ -> finish() }
-            .setOnCancelListener { finish() }
-            .show()
+            },
+            negative = getString(R.string.alert_stop), onNegative = ::finish,
+            title = getString(R.string.alert_finance_title),
+        )
     }
 
     /** 패키지 → 앱 이름 (없으면 "금융 요청") */

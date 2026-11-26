@@ -142,6 +142,42 @@ internal object ElderUi {
         visibility = if (show) View.VISIBLE else View.GONE
     }
 
+    /**
+     * 어르신용 큰 글씨 확인 창 (안드로이드 기본 창은 글씨가 작아서).
+     * [title] 은 선택, [message] 는 24sp. 단추는 큰 단추로 세로로 쌓음. 바깥을 눌러도 닫히지 않음.
+     * [onCancel] 은 뒤로 가기로 닫을 때.
+     */
+    fun dialog(
+        activity: Activity,
+        message: CharSequence,
+        positive: CharSequence,
+        onPositive: () -> Unit,
+        negative: CharSequence? = null,
+        onNegative: () -> Unit = {},
+        title: CharSequence? = null,
+        positiveKind: Kind = Kind.PRIMARY,
+        onCancel: () -> Unit = onNegative,
+    ): android.app.AlertDialog {
+        val pad = dp(activity, 22)
+        val body = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, dp(activity, 14))
+        }
+        title?.let { body.addView(text(activity, it, 26f, INK, bold = true)) }
+        body.addView(text(activity, message, 24f, INK).apply { setLineSpacing(0f, 1.25f) })
+        val dialog = android.app.AlertDialog.Builder(activity)
+            .setView(ScrollView(activity).apply { addView(body) })
+            .setOnCancelListener { onCancel() }
+            .create()
+        dialog.setCanceledOnTouchOutside(false)
+        body.addView(button(activity, positive, positiveKind) { dialog.dismiss(); onPositive() })
+        negative?.let { label ->
+            body.addView(button(activity, label, Kind.QUIET) { dialog.dismiss(); onNegative() })
+        }
+        dialog.show()
+        return dialog
+    }
+
     /** "123456" → "1 2 3 4 5 6" (어르신이 한 자씩 불러 주기 쉽게) */
     fun spaced(code: String): String = code.toCharArray().joinToString(" ")
 }

@@ -131,7 +131,8 @@ internal object Family {
     var gateway: FamilyGateway? = null
 
     const val CODE_TTL_MS = 600_000L
-    const val NOTICE_COOLDOWN_MS = 600_000L
+    /** 같은 민감 알림·동의 질문을 다시 할 수 있기까지 (들어올 때 5분 지났으면 다시) */
+    const val NOTICE_COOLDOWN_MS = 300_000L
 }
 
 /** 민감 앱 판단: 패키지 이름으로만 (앱 이름 단어는 오탐이 많아 쓰지 않음) */
