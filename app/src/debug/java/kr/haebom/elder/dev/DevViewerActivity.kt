@@ -49,6 +49,25 @@ class DevViewerActivity : Activity() {
         })
         status = TextView(this).apply { textSize = 15f }
         content.addView(status)
+
+        // #16 가이드 서버 시험
+        content.addView(TextView(this).apply {
+            text = "\n가이드 서버(#16) 시험\n유튜브 같은 다른 앱 화면을 한 번 열었다가 돌아와서 누르세요. 마지막으로 읽은 화면을 보냅니다."
+            textSize = 16f
+        })
+        val guideResult = TextView(this).apply { textSize = 15f }
+        content.addView(android.widget.Button(this).apply {
+            text = "가이드 서버에 요청 보내기"
+            textSize = 18f
+            setOnClickListener {
+                val sender = client ?: return@setOnClickListener
+                guideResult.text = "보내는 중… (${sender.lastAppPackage ?: "화면 없음"})"
+                sender.sendGuideTest("YOUTUBE", "유튜브에서 트로트 검색해 줘", mapOf("query" to "트로트")) {
+                    guideResult.text = "보낸 화면: ${sender.lastAppPackage}\n응답: $it"
+                }
+            }
+        })
+        content.addView(guideResult)
     }
 
     override fun onStart() {

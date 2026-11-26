@@ -30,17 +30,24 @@ internal object DevScreenPayload {
         height: Int,
         nodes: List<DevNode>,
     ): String? {
-        if (!isValidDeviceId(deviceId) || packageName.isEmpty() || packageName.length > MAX_PACKAGE) return null
+        if (!isValidDeviceId(deviceId)) return null
+        val screen = screenObject(packageName, width, height, nodes) ?: return null
+        return "{\"deviceId\":${quote(deviceId)},\"capturedAt\":${quote(capturedAt)},\"screen\":$screen}"
+    }
+
+    /** 화면 객체만 ({pkg,width,height,nodes}). #16 guide 요청의 screen 과 같은 모양 */
+    fun screenObject(packageName: String, width: Int, height: Int, nodes: List<DevNode>): String? {
+        if (packageName.isEmpty() || packageName.length > MAX_PACKAGE) return null
         if (width !in 1..10_000 || height !in 1..10_000) return null
         val items = nodes.take(MAX_NODES).mapIndexed { index, node -> node(index, node) }
-        return buildString {
-            append("{\"deviceId\":").append(quote(deviceId))
-            append(",\"capturedAt\":").append(quote(capturedAt))
-            append(",\"screen\":{\"pkg\":").append(quote(packageName))
-            append(",\"width\":").append(width)
-            append(",\"height\":").append(height)
-            append(",\"nodes\":[").append(items.joinToString(",")).append("]}}")
-        }
+        return "{\"pkg\":${quote(packageName)},\"width\":$width,\"height\":$height,\"nodes\":[${items.joinToString(",")}]}"
+    }
+
+    /** #16 POST /v1/elder/guide 요청 본문 */
+    fun guide(requestId: Int, goal: String, utterance: String, slots: Map<String, String>, screen: String): String {
+        val slotJson = slots.entries.joinToString(",", "{", "}") { (k, v) -> "${quote(k)}:${quote(v)}" }
+        return "{\"requestId\":$requestId,\"goal\":${quote(goal)},\"utterance\":${quote(utterance)}," +
+            "\"slots\":$slotJson,\"history\":[],\"screen\":$screen}"
     }
 
     fun heartbeat(deviceId: String, model: String, os: String, appVersion: String): String =

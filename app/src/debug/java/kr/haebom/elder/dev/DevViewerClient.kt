@@ -55,6 +55,29 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
         private set
     val serviceConnected: Boolean get() = service != null
 
+    /** 해봄이 아닌 앱에서 마지막으로 읽은 화면 (가이드 서버 시험용) */
+    @Volatile var lastAppScreen: String? = null
+        private set
+    @Volatile var lastAppPackage: String? = null
+        private set
+    private var guideRequestId = 0
+
+    /**
+     * #16 가이드 서버 시험: 마지막으로 읽은 다른 앱 화면을 보내고 응답을 그대로 돌려줌 (메인 스레드).
+     * 서버는 화면을 보관하지 않고, 비밀번호 화면·은행 목표는 AI 에 보내지 않음 (서버 기획 5.3).
+     */
+    fun sendGuideTest(goal: String, utterance: String, slots: Map<String, String>, done: (String) -> Unit) {
+        val screen = lastAppScreen ?: return done("먼저 다른 앱 화면을 열었다가 돌아와 주세요. (화면 보내기가 켜져 있어야 해요)")
+        val body = DevScreenPayload.guide(++guideRequestId, goal, utterance, slots, screen)
+        io.execute {
+            val started = System.currentTimeMillis()
+            val result = post("/v1/elder/guide", body)
+            val elapsed = System.currentTimeMillis() - started
+            Log.d(TAG, "가이드 시험 ($lastAppPackage, ${elapsed}ms) → $result")
+            main.post { done("${elapsed}ms · $result") }
+        }
+    }
+
     private val heartbeatLoop = object : Runnable {
         override fun run() {
             if (!enabled || service == null) return
@@ -154,6 +177,12 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
             visit(root)
             if (blocked) return null
             val size = screenSize(service)
+            if (pkg != context.packageName) {
+                DevScreenPayload.screenObject(pkg, size.x, size.y, nodes)?.let {
+                    lastAppScreen = it
+                    lastAppPackage = pkg
+                }
+            }
             return DevScreenPayload.screen(deviceId, now(), pkg, size.x, size.y, nodes)
         } finally {
             root.recycle()
@@ -176,7 +205,7 @@ internal class DevViewerClient(private val context: Context) : DevScreenSink {
             val code = connection.responseCode
             if (code == 401) forceRefresh = true
             val stream = if (code >= 400) connection.errorStream else connection.inputStream
-            val reply = stream?.bufferedReader()?.use { it.readText() }.orEmpty().take(160)
+            val reply = stream?.bufferedReader()?.use { it.readText() }.orEmpty().take(600)
             "$code $reply".trim()
         } catch (e: Exception) {
             "보내지 못함: ${e.javaClass.simpleName}"
