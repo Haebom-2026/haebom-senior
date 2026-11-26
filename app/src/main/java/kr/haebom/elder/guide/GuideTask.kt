@@ -61,7 +61,7 @@ internal enum class GuideTask(val appPackage: String?) {
     fun defaultUtterance(query: String?): String = when (this) {
         CONTACTS -> "새 연락처를 추가해 줘"
         YOUTUBE -> if (query != null) "유튜브에서 $query 검색해 줘" else "유튜브에서 영상을 검색하게 도와줘"
-        GOV24 -> "정부24에서 주민등록표 등본 발급 메뉴까지 가게 도와줘. 본인인증은 내가 직접 할게"
+        GOV24 -> "정부24에서 주민등록표 등본을 발급하게 도와줘. 로그인·본인인증은 내가 직접 하고, 끝나면 이어서 안내해 줘"
     }
 
     /** AI 에 보내는 slots (할 일을 분명히) */
@@ -87,7 +87,9 @@ internal enum class GuideTask(val appPackage: String?) {
         /** 검색어를 이미 넣었는지 (안 넣었으면 자동완성 입력 단추를 보여 줌) */
         queryFilled: Boolean = true,
     ): GuideStep {
-        if (hasPasswordField || (this == GOV24 && controls.any { it.matches(AUTHENTICATION) })) {
+        // 비밀번호 칸이 있거나, 정부24에서 로그인·인증을 고르는 단추가 있으면 직접 하시도록.
+        // 눌리는 단추만 봄: 인증을 마친 뒤 화면에 '본인인증' 같은 글자만 남아 있으면 안내를 이어 감
+        if (hasPasswordField || (this == GOV24 && controls.any { it.clickable && it.matches(AUTHENTICATION) })) {
             return GuideStep(R.string.guide_authentication_stop)
         }
 
@@ -178,10 +180,21 @@ internal enum class GuideTask(val appPackage: String?) {
             "주민등록등본(초본)", "주민등록표등본(초본)",
         )
 
+        private val CONTACT_WORDS = listOf("연락처", "전화번호부", "주소록")
+        private val PHONE_WORDS = listOf("전화번호", "휴대폰번호", "핸드폰번호", "폰번호", "번호")
+        private val SAVE_WORDS = listOf("추가", "등록", "저장", "넣", "입력", "만들")
+
+        /** "연락처 추가", "전화번호 등록하고 싶어", "번호 저장해 줘" 같은 말. 비밀번호·인증번호는 아님 */
+        private fun isContactCommand(normalized: String): Boolean {
+            if (isPrivateCommand(normalized)) return false
+            return CONTACT_WORDS.any { it in normalized } ||
+                (PHONE_WORDS.any { it in normalized } && SAVE_WORDS.any { it in normalized })
+        }
+
         fun fromCommand(command: String): GuideTask? {
             val normalized = normalize(command)
             return when {
-                "연락처" in normalized || "전화번호추가" in normalized -> CONTACTS
+                isContactCommand(normalized) -> CONTACTS
                 "유튜브" in normalized || "youtube" in normalized -> YOUTUBE
                 "등본" in normalized || "정부24" in normalized -> GOV24
                 else -> null

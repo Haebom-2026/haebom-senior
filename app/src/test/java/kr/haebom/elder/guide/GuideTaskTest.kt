@@ -125,4 +125,25 @@ class GuideTaskTest {
         assertFalse(GuideTask.isSameApp("카카오톡", "One UI 홈"))
         assertFalse(GuideTask.isSameApp("", "설정"))
     }
+
+    @Test
+    fun phoneNumberRequestsGoToAddingAContact() {
+        assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("전화번호 등록하고 싶어"))
+        assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("엄마 전화번호 저장해 줘"))
+        assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("번호 추가해 줘"))
+        assertEquals(GuideTask.CONTACTS, GuideTask.fromCommand("주소록에 넣어 줘"))
+        assertNull(GuideTask.fromCommand("인증번호 넣어 줘"))
+        assertNull(GuideTask.fromCommand("비밀번호 입력해 줘"))
+        assertEquals(CommandRoute.Task(GuideTask.CONTACTS, null), CommandRoute.of("전화번호 등록하고 싶어", null, aiAvailable = true))
+    }
+
+    @Test
+    fun gov24KeepsGuidingWhenOnlyAuthenticationWordsRemain() {
+        val bounds = android.graphics.Rect()
+        val loginChoice = ScreenControl(setOf("회원신청하기"), bounds, clickable = true)
+        val leftoverText = ScreenControl(setOf("본인인증"), bounds, clickable = false)
+        assertEquals(R.string.guide_authentication_stop, GuideTask.GOV24.findStep(listOf(loginChoice), false).caption)
+        // 인증을 마친 뒤 글자만 남은 화면은 멈추지 않음
+        assertFalse(GuideTask.GOV24.findStep(listOf(leftoverText), false).caption == R.string.guide_authentication_stop)
+    }
 }

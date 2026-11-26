@@ -28,8 +28,8 @@
     <string name="scam_warning">잠깐만요. 사기일 수 있어요. 돈을 보내거나 원격제어 앱을 설치하기 전에 보호자에게 연락해 주세요.</string>
     <string name="guide_app_unavailable">이 안내에 필요한 앱을 열 수 없어요. 앱이 설치되어 있는지 확인해 주세요.</string>
     <string name="guide_continue">안내 시작</string>
-    <string name="guide_gov24_limited">등본 발급 메뉴까지 안내하고, 본인인증 단계에서는 멈출게요. 비밀번호와 인증은 직접 해 주세요.</string>
-    <string name="guide_authentication_stop">본인인증 단계예요. 해봄 안내를 멈출게요.</string>
+    <string name="guide_gov24_limited">등본 발급까지 안내할게요. 로그인과 본인인증은 해봄이 보지 않으니 직접 해 주세요. 끝나면 이어서 안내할게요.</string>
+    <string name="guide_authentication_stop">비밀번호·본인인증은 해봄이 보지 않아요. 직접 해 주세요. 끝나면 이어서 안내할게요.</string>
     <string name="guide_contact_save">이름과 번호를 입력한 뒤, 빨간 테두리의 저장 버튼을 눌러 주세요.</string>
     <string name="guide_contact_entry">추가할 연락처의 이름과 전화번호를 입력해 주세요.</string>
     <string name="guide_youtube_search">빨간 테두리의 검색 버튼을 눌러 주세요.</string>

@@ -216,7 +216,7 @@ class GuideInputActivity : Activity() {
             return
         }
         if (GuideTask.isPrivateCommand(spoken)) {
-            GuideSession.stop()
+            // 안내는 끝내지 않음 (직접 입력하고 넘어가면 이어서 안내)
             GuideCaption.post(getString(R.string.caption_private), GuideCaption.Tone.WARN, durationMs = 10_000)
             showGuideMessage(this, R.string.guide_authentication_stop, ::finish)
             return

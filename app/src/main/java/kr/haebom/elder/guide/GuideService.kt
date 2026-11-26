@@ -959,7 +959,7 @@ class GuideService : AccessibilityService() {
             is CommandRoute.Scam -> warnScam(route.assessment, foreground)
             CommandRoute.Help -> openSos(foreground)
             CommandRoute.Private -> {
-                GuideSession.stop()
+                // 안내는 끝내지 않음: 비밀번호 칸이 있는 동안은 표시를 숨기고, 직접 입력하고 넘어가면 이어서 안내
                 GuideCaption.post(getString(R.string.caption_private), GuideCaption.Tone.WARN, durationMs = 10_000)
                 card.show(
                     key = "private",
