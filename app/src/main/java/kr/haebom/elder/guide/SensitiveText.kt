@@ -3,10 +3,10 @@ package kr.haebom.elder.guide
 /**
  * 서버로 보낼 화면에서 민감한 글자 다루기 (안드로이드 없이 단위 테스트).
  *
- * 서버는 화면 글자 어디에든 '비밀번호', '주민등록번호' 같은 말이 있으면 화면 전체를 거부함.
- * 그래서 로그인 뒤 신청서처럼 안내 문구에 그 말이 들어 있기만 해도 안내가 막혔음.
- * - 입력 칸 자체나 그 바로 위·옆 글자가 민감한 말이면: 민감 정보를 넣는 칸 → [Result.blocked] (어르신이 직접, 안내 잠깐 멈춤)
- * - 입력 칸과 상관없는 안내 문구면: 그 글자만 빼고 보냄 (나머지 화면으로 안내는 계속)
+ * - 입력 칸 자체나 그 바로 위·옆·안쪽 글자가 민감한 말이면: 민감 정보를 넣는 칸 → [Result.blocked]
+ *   (화면을 서버로 보내지 않음. 어르신이 직접, 안내 잠깐 멈춤)
+ * - 입력 칸과 상관없는 안내 문구면: 그대로 보냄. 서버도 guide@v4.4 부터 입력 칸과 그 이름표만 보고 거부하므로
+ *   ("주민등록번호가 포함된 경우만" 같은 안내 문구로는 막지 않음) 예전처럼 그 글자를 빼고 보낼 필요가 없음
  */
 internal object SensitiveText {
     /** 서버 거부 규칙과 같은 말들 (haebom-server src/ai/guide.ts SECRET_FIELD) */
@@ -31,7 +31,7 @@ internal object SensitiveText {
                 sensitiveLabels.any { label -> labels(label, field) }
         }
         if (blocked) return Result(emptyList(), blocked = true)
-        return Result(nodes.filterNot { it in sensitiveLabels }, blocked = false)
+        return Result(nodes, blocked = false)
     }
 
     /** [label] 이 [field] 의 이름표인지: 칸 바로 위(가로로 겹침)나 같은 줄 왼쪽 */

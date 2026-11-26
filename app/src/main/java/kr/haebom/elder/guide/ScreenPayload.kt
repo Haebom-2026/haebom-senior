@@ -126,7 +126,7 @@ internal object ScreenPayload {
         if (node.scrollable) fields += "\"scrollable\":true"
         if (node.checked) fields += "\"checked\":true"
         if (node.selected) fields += "\"selected\":true"
-        // 서버 프롬프트는 아직 이 둘을 읽지 않음 (요약은 slots.state 로 보냄). 디버그 뷰어·이후 서버 확장용
+        // guide@v4.4: 서버가 disabled(회색이라 아직 못 누름)·focused 상태로 모델에 전달
         if (!node.enabled) fields += "\"enabled\":false"
         if (node.focused) fields += "\"focused\":true"
         return fields.joinToString(",", "{", "}")

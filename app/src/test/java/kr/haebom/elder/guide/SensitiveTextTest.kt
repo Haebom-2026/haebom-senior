@@ -13,7 +13,7 @@ class SensitiveTextTest {
         ScreenNode(text = hint, className = "EditText", bounds = intArrayOf(left, top, 1032, top + 120), editable = true, clickable = true)
 
     @Test
-    fun noticeTextIsDroppedAndTheRestIsSent() {
+    fun noticeTextIsSentAsIs() {
         // 로그인 뒤 신청서: 입력 칸 없이 안내 문구에만 '주민등록번호'
         val nodes = listOf(
             text("신청할 서비스를 선택하세요.", 300),
@@ -22,8 +22,8 @@ class SensitiveTextTest {
         )
         val result = SensitiveText.sanitize(nodes)
         assertFalse(result.blocked)
-        assertEquals(2, result.nodes.size)
-        assertTrue(result.nodes.none { SensitiveText.isSensitive(it.text) })
+        // 서버 guide@v4.4 는 안내 문구로는 거부하지 않으므로 빼지 않고 그대로 보냄
+        assertEquals(nodes, result.nodes)
     }
 
     @Test
@@ -41,6 +41,6 @@ class SensitiveTextTest {
         val nodes = listOf(text("주민등록번호는 수집하지 않습니다", 300), text("받는 분 이름", 1400), field(1480))
         val result = SensitiveText.sanitize(nodes)
         assertFalse(result.blocked)
-        assertEquals(2, result.nodes.size)
+        assertEquals(3, result.nodes.size)
     }
 }
