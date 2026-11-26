@@ -28,6 +28,7 @@ internal class ServerFamilyGateway(
     private val api: HaebomApi,
 ) : FamilyGateway {
     private val settings = ElderSettings(context)
+    private val ownPackage = context.packageName
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private val listeners = mutableSetOf<() -> Unit>()
@@ -132,8 +133,10 @@ internal class ServerFamilyGateway(
         done: (NoticeOutcome) -> Unit,
     ) {
         io.execute {
+            // packageName·appName 은 서버 필수값. 앱을 특정하지 못한 말(예: 은행 앱이 없음)은 해봄에서 온 요청으로 보냄
             val body = JSONObject()
-                .put("packageName", packageName).put("appName", appName)
+                .put("packageName", packageName.ifBlank { ownPackage }.take(200))
+                .put("appName", appName.ifBlank { "해봄" }.take(100))
                 .put("category", category).put("level", level).put("reason", reason)
                 .toString()
             val reply = api.call("POST", "/v1/elder/sensitive-entries", body, UUID.randomUUID().toString())

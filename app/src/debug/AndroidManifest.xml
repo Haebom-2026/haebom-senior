@@ -3,6 +3,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application>
         <activity android:name=".dev.DevViewerActivity" android:exported="false" />
+        <!-- adb 로 들은 말을 넘기는 시험 진입점: DUMP 권한(셸)만 부를 수 있음 -->
+        <activity
+            android:name=".dev.DevCommandActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <provider
             android:name=".dev.DevViewerInitializer"
             android:authorities="${applicationId}.devviewer"

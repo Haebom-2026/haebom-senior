@@ -8,6 +8,17 @@
         <package android:name="com.google.android.youtube" />
         <package android:name="kr.go.minwon.m" />
         <package android:name="com.android.chrome" />
+        <!-- 금융 요청 뒤 [계속하기]로 열어 줄 은행 앱 (Sensitivity.FINANCE_APPS, SensitiveApps) -->
+        <package android:name="viva.republica.toss" />
+        <package android:name="com.kakaobank.channel" />
+        <package android:name="com.kbstar.kbbank" />
+        <package android:name="com.shinhan.sbanking" />
+        <package android:name="com.wooribank.smart.npib" />
+        <package android:name="com.kebhana.hanapush" />
+        <package android:name="nh.smart.banking" />
+        <package android:name="com.nonghyup.nhallonebank" />
+        <package android:name="com.ibk.android.ionebank" />
+        <package android:name="com.kbankwith.smartbank" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
