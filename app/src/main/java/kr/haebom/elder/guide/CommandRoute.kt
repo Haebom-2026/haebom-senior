@@ -31,11 +31,17 @@ internal sealed class CommandRoute {
     /** 앱이 아는 일을 지금 바로 시작 */
     data class Task(val task: GuideTask, val query: String?) : CommandRoute()
 
+    /** 인터넷 검색: 크롬으로 검색 결과를 바로 엶 */
+    data class WebSearch(val web: Search.Web) : CommandRoute()
+
+    /** 주변 장소: 지도 앱에서 내 위치 주변으로 검색 */
+    data class MapSearch(val query: String) : CommandRoute()
+
     /**
-     * 어디서 할지 말하지 않은 애매한 말: 뜻을 짐작해 "○○에서 △△ 할까요?" 예/아니요로 물음.
-     * 예: "임영웅 찾아줘" → 유튜브에서 '임영웅' 검색
+     * 어디서 찾을지 말하지 않은 애매한 말: 가능성 높은 곳부터 고르게 함 (말로 "네"면 첫 번째).
+     * 예: "임영웅 찾아줘" → [유튜브, 인터넷], "약국 찾아 줘" → [지도, 인터넷]
      */
-    data class Guess(val task: GuideTask, val query: String) : CommandRoute()
+    data class Guess(val query: String, val options: List<Search.Where>) : CommandRoute()
 
     /** 화면 안내 AI 로 (앱 이름이면 바로 열고, 그 밖에는 안내할지 물음) */
     data object Ai : CommandRoute()
@@ -50,27 +56,17 @@ internal sealed class CommandRoute {
             if (assessment.level == Level.L3) return Scam(assessment)
             if (GuideTask.isHelpCommand(spoken)) return Help
             if (GuideTask.isPrivateCommand(spoken)) return Private
+            // "근처 은행 어디야" 는 금융 요청이 아니라 장소 찾기
+            Search.nearby(spoken)?.let { return MapSearch(it) }
             if (assessment.level == Level.L2) return Finance(assessment)
             val task = GuideTask.forCommand(spoken, foreground)
             return when {
                 task == GuideTask.GOV24 -> Gov24
                 task != null -> Task(task, if (task == GuideTask.YOUTUBE) GuideTask.youtubeQuery(spoken) else null)
-                else -> guessYoutube(spoken)?.let { Guess(GuideTask.YOUTUBE, it) }
+                else -> Search.web(spoken)?.let { WebSearch(it) }
+                    ?: Search.guess(spoken)?.let { (query, options) -> Guess(query, options) }
                     ?: if (aiAvailable) Ai else Unrecognized
             }
-        }
-
-        private val WATCH_VERBS = listOf("찾아", "검색", "틀어", "보여", "들려", "재생", "보고싶", "듣고싶")
-        private val OTHER_PLACE = listOf("에서", "앱", "어플", "설정", "열어", "켜")
-
-        /**
-         * 앱을 말하지 않고 "○○ 찾아 줘 / 틀어 줘 / 보여 줘" 라고 하면 유튜브 검색으로 짐작.
-         * "설정에서 디스플레이 찾아 줘" 처럼 다른 곳을 말했으면 짐작하지 않음.
-         */
-        fun guessYoutube(spoken: String): String? {
-            val normalized = GuideTask.normalize(spoken)
-            if (WATCH_VERBS.none { it in normalized } || OTHER_PLACE.any { it in normalized }) return null
-            return GuideTask.youtubeQuery(spoken)
         }
     }
 }

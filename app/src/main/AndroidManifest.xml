@@ -13,6 +13,10 @@
         <package android:name="com.google.android.youtube" />
         <package android:name="kr.go.minwon.m" />
         <package android:name="com.android.chrome" />
+        <!-- 주변 장소 지도 검색 -->
+        <package android:name="com.nhn.android.nmap" />
+        <package android:name="net.daum.android.map" />
+        <package android:name="com.google.android.apps.maps" />
         <!-- 금융 요청 뒤 [계속하기]로 열어 줄 은행 앱 (Sensitivity.FINANCE_APPS, SensitiveApps) -->
         <package android:name="viva.republica.toss" />
         <package android:name="com.kakaobank.channel" />

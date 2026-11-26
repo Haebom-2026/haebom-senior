@@ -33,12 +33,43 @@ class CommandRouteTest {
     @Test
     fun ambiguousRequestsAreGuessedAndAsked() {
         // 앱을 말하지 않음 → 유튜브 검색으로 짐작해서 물음
-        assertEquals(CommandRoute.Guess(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("임영웅 찾아줘", null, aiAvailable = true))
-        assertEquals(CommandRoute.Guess(GuideTask.YOUTUBE, "트로트 노래"), CommandRoute.of("트로트 노래 틀어 줘", null, aiAvailable = true))
+        val youtubeFirst = listOf(Search.Where.YOUTUBE, Search.Where.WEB)
+        assertEquals(CommandRoute.Guess("임영웅", youtubeFirst), CommandRoute.of("임영웅 찾아줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Guess("트로트 노래", youtubeFirst), CommandRoute.of("트로트 노래 틀어 줘", null, aiAvailable = true))
         // 분명한 말은 바로
         assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("유튜브에 임영웅 검색해줘", null, aiAvailable = true))
         // 다른 곳을 말했으면 유튜브로 짐작하지 않음
         assertEquals(CommandRoute.Ai, CommandRoute.of("설정에서 디스플레이 찾아줘", null, aiAvailable = true))
         assertEquals(CommandRoute.Ai, CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = true))
+    }
+
+    @Test
+    fun webAndNearbySearches() {
+        assertEquals(
+            CommandRoute.WebSearch(Search.Web("오늘 날씨", Search.Engine.NAVER)),
+            CommandRoute.of("네이버에서 오늘 날씨 찾아 줘", null, aiAvailable = true),
+        )
+        assertEquals(
+            CommandRoute.WebSearch(Search.Web("손주 선물", Search.Engine.GOOGLE)),
+            CommandRoute.of("구글에 손주 선물 검색해 줘", null, aiAvailable = true),
+        )
+        assertEquals(CommandRoute.MapSearch("맛집"), CommandRoute.of("주변 맛집 알려 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.MapSearch("우체국"), CommandRoute.of("근처 우체국 어디야", null, aiAvailable = true))
+        assertEquals(CommandRoute.MapSearch("헬스장"), CommandRoute.of("가까운 헬스장 찾아 줘", null, aiAvailable = true))
+        // "근처 은행" 은 금융 경고가 아니라 장소 찾기
+        assertEquals(CommandRoute.MapSearch("은행"), CommandRoute.of("근처 은행 어디 있어", null, aiAvailable = true))
+        // 장소 이름 + 찾아 줘 → 지도 먼저, 지식 질문 → 인터넷 먼저
+        assertEquals(CommandRoute.Guess("약국", listOf(Search.Where.MAP, Search.Where.WEB)), CommandRoute.of("약국 찾아 줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Guess("오늘 날씨", listOf(Search.Where.WEB, Search.Where.YOUTUBE)), CommandRoute.of("오늘 날씨 알려 줘", null, aiAvailable = true))
+    }
+
+    @Test
+    fun spokenChoicesAndSearchUrls() {
+        val options = listOf(Search.Where.YOUTUBE, Search.Where.WEB)
+        assertEquals(Search.Where.WEB, Confirm.pick("인터넷", options))
+        assertEquals(Search.Where.YOUTUBE, Confirm.pick("유튜브로", options))
+        assertEquals(null, Confirm.pick("지도", options))
+        assertEquals("https://search.naver.com/search.naver?query=%EC%9A%B0%EC%B2%B4%EA%B5%AD", Search.webUrl(Search.Web("우체국", Search.Engine.NAVER)))
+        assertTrue(Search.mapUrls("우체국", "kr.haebom.elder").first().first.startsWith("nmap://search?query=%EC%9A%B0"))
     }
 }

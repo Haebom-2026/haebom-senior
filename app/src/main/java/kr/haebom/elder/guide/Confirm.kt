@@ -22,6 +22,18 @@ internal object Confirm {
         }
     }
 
+    /** 고르기 카드에서 말로 고른 곳 ("인터넷", "지도로", "유튜브"). 짧은 말만 */
+    fun pick(spoken: String, options: List<Search.Where>): Search.Where? {
+        val text = GuideTask.normalize(spoken)
+        if (text.isEmpty() || text.length > 12) return null
+        val words = mapOf(
+            Search.Where.YOUTUBE to listOf("유튜브", "영상", "youtube"),
+            Search.Where.WEB to listOf("인터넷", "네이버", "구글", "검색"),
+            Search.Where.MAP to listOf("지도", "근처", "주변", "위치"),
+        )
+        return options.firstOrNull { option -> words[option].orEmpty().any { it in text } }
+    }
+
     /** 말한 앱 이름과 맞는 앱 (이름이 똑같은 것 먼저). [apps] 는 (앱 이름, 패키지) */
     fun findApp(spoken: String, apps: List<Pair<String, String>>): Pair<String, String>? {
         val wanted = GuideTask.normalize(spoken).removeSuffix("앱")

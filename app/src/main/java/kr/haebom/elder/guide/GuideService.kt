@@ -976,6 +976,16 @@ class GuideService : AccessibilityService() {
      */
     private fun handleSpoken(spoken: String, foreground: String?) {
         // "이렇게 할까요?" 물은 뒤의 짧은 대답: 예면 그 일을, 아니요면 취소. 그 밖의 말은 새 요청
+        pendingChoices?.let { choices ->
+            Confirm.pick(spoken, choices.keys.toList())?.let { where ->
+                pendingChoices = null
+                pendingConfirm = null
+                pendingChoices = null
+                card.hide()
+                choices.getValue(where)()
+                return
+            }
+        }
         pendingConfirm?.let { pending ->
             if (spoken.isBlank()) {
                 // 대답을 못 들음: 카드는 그대로 두고 단추로 고르시게
@@ -985,18 +995,21 @@ class GuideService : AccessibilityService() {
             when (Confirm.answer(spoken)) {
                 Confirm.Answer.YES -> {
                     pendingConfirm = null
+                    pendingChoices = null
                     card.hide()
                     pending()
                     return
                 }
                 Confirm.Answer.NO -> {
                     pendingConfirm = null
+                    pendingChoices = null
                     card.hide()
                     GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
                     return
                 }
                 Confirm.Answer.OTHER -> {
                     pendingConfirm = null
+                    pendingChoices = null
                     card.hide()
                 }
             }
@@ -1040,10 +1053,9 @@ class GuideService : AccessibilityService() {
                 kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
             }
             // 애매한 말은 짐작한 뜻을 예/아니요로 물음
-            is CommandRoute.Guess -> confirmThen(spoken, getString(R.string.confirm_youtube_query, route.query)) {
-                GuideCaption.post(getString(route.task.nextStepText()), GuideCaption.Tone.INFO)
-                kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
-            }
+            is CommandRoute.WebSearch -> openWebSearch(route.web)
+            is CommandRoute.MapSearch -> openMapSearch(route.query)
+            is CommandRoute.Guess -> askWhere(spoken, route.query, route.options, foreground)
             CommandRoute.Ai -> confirmAi(spoken, foreground)
         }
     }
@@ -1052,12 +1064,103 @@ class GuideService : AccessibilityService() {
 
     /** 예를 기다리는 일 (말로 "네" 해도, 카드의 [예]를 눌러도 실행) */
     private var pendingConfirm: (() -> Unit)? = null
+    /** 고르기 카드: 말로 "인터넷", "지도" 라고 골라도 됨 */
+    private var pendingChoices: Map<Search.Where, () -> Unit>? = null
+
+    // ───────────────────────── 검색 (인터넷·지도·유튜브) ─────────────────────────
+
+    /** 인터넷 검색: 크롬으로 네이버(또는 구글) 검색 결과를 바로 엶 */
+    private fun openWebSearch(web: Search.Web) {
+        GuideSession.stop()
+        try {
+            startActivity(kr.haebom.elder.Browser.intent(packageManager, Search.webUrl(web)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            GuideCaption.post(getString(R.string.caption_web_search, web.query), GuideCaption.Tone.DONE)
+        } catch (_: android.content.ActivityNotFoundException) {
+            GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+        }
+    }
+
+    /** 주변 장소: 깔린 지도 앱(네이버 지도 → 카카오맵 → 구글 지도 → 웹)에서 내 위치 주변으로 검색. 위치는 지도 앱이 씀 */
+    private fun openMapSearch(query: String) {
+        GuideSession.stop()
+        for ((url, pkg) in Search.mapUrls(query, packageName)) {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (pkg != null) {
+                if (packageManager.getLaunchIntentForPackage(pkg) == null) continue
+                intent.setPackage(pkg)
+            }
+            try {
+                startActivity(intent)
+                GuideCaption.post(getString(R.string.caption_map_search, query), GuideCaption.Tone.DONE)
+                return
+            } catch (_: android.content.ActivityNotFoundException) {
+                // 다음 지도 앱으로
+            }
+        }
+        GuideCaption.post(getString(R.string.guide_app_unavailable), GuideCaption.Tone.WARN)
+    }
+
+    /** 애매한 검색 말: 어디서 찾을지 고르게 함 (가능성 높은 곳이 맨 위, 말로 "네"면 맨 위) */
+    private fun askWhere(spoken: String, query: String, options: List<Search.Where>, foreground: String?) {
+        val actions: Map<Search.Where, () -> Unit> = options.associateWith { where ->
+            when (where) {
+                Search.Where.YOUTUBE -> {
+                    {
+                        GuideCaption.post(getString(GuideTask.YOUTUBE.nextStepText()), GuideCaption.Tone.INFO)
+                        kr.haebom.elder.launchGuide(this, GuideTask.YOUTUBE, foreground, announce = false, query, spoken)
+                        Unit
+                    }
+                }
+                Search.Where.WEB -> {
+                    { openWebSearch(Search.Web(query, Search.Engine.NAVER)) }
+                }
+                Search.Where.MAP -> {
+                    { openMapSearch(query) }
+                }
+            }
+        }
+        val first = actions.getValue(options.first())
+        pendingConfirm = first
+        pendingChoices = actions
+        fun label(where: Search.Where): String = getString(
+            when (where) {
+                Search.Where.YOUTUBE -> R.string.choice_youtube
+                Search.Where.WEB -> R.string.choice_web
+                Search.Where.MAP -> R.string.choice_map
+            },
+        )
+        card.show(
+            key = "where:$query",
+            title = getString(R.string.confirm_title, spoken),
+            message = getString(R.string.choice_where, query),
+            actions = options.map { where ->
+                OverlayCard.Action(label(where), if (where == options.first()) ElderUi.Kind.PRIMARY else ElderUi.Kind.SECONDARY) {
+                    pendingConfirm = null
+                    pendingChoices = null
+                    stopListening(announce = false)
+                    actions.getValue(where)()
+                }
+            } + OverlayCard.Action(getString(R.string.cancel), ElderUi.Kind.QUIET) {
+                pendingConfirm = null
+                pendingChoices = null
+                stopListening(announce = false)
+                GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
+            },
+        )
+        val question = getString(R.string.choice_where_spoken, query, label(options.first()))
+        GuideCaption.post(question, GuideCaption.Tone.INFO, speak = false)
+        voice?.stop()
+        speak(question) {
+            if (pendingConfirm === first && !listener.isListening) startListening(fallbackToWindow = false)
+        }
+    }
 
     /**
      * 알아들은 뜻을 먼저 묻고 예일 때만 [action]. 질문을 읽어 준 뒤 마이크를 켜서 "네/아니요" 대답도 받음.
      * [detail] 은 카드에 덧붙이는 설명.
      */
     private fun confirmThen(spoken: String, question: String, detail: String? = null, action: () -> Unit) {
+        pendingChoices = null
         pendingConfirm = action
         card.show(
             key = "confirm:$question",
@@ -1067,11 +1170,13 @@ class GuideService : AccessibilityService() {
             actions = listOf(
                 OverlayCard.Action(getString(R.string.confirm_yes)) {
                     pendingConfirm = null
+                    pendingChoices = null
                     stopListening(announce = false)
                     action()
                 },
                 OverlayCard.Action(getString(R.string.confirm_no), ElderUi.Kind.QUIET) {
                     pendingConfirm = null
+                    pendingChoices = null
                     stopListening(announce = false)
                     GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
                 },
