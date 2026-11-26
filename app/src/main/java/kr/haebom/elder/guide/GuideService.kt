@@ -88,6 +88,7 @@ class GuideService : AccessibilityService() {
         noTargetSince = 0L
         leftAppSince = 0L
         clearHighlight()
+        clearArrow()
         scheduleRefresh()
     }
     private val captionChanged: (GuideCaption.Message?) -> Unit = { renderCaption() }
@@ -112,12 +113,14 @@ class GuideService : AccessibilityService() {
         super.onConfigurationChanged(newConfig)
         floatingControls.hide()
         clearHighlight()
+        clearArrow()
         removeCaption()
         scheduleRefresh()
     }
 
     override fun onInterrupt() {
         clearHighlight()
+        clearArrow()
     }
 
     override fun onUnbind(intent: Intent): Boolean {
@@ -145,6 +148,7 @@ class GuideService : AccessibilityService() {
         if (locked) {
             floatingControls.hide()
             clearHighlight()
+            clearArrow()
             removeCaption()
             return
         }
@@ -159,10 +163,21 @@ class GuideService : AccessibilityService() {
             clearHighlight()
             decision.target?.let(::showHighlight)
         }
+        // 짚을 단추가 있으면 빨간 테두리만, 없을 때 이동 방향 화살표
+        val arrow = decision.arrow.takeIf { decision.target == null }
+        if (arrow != shownArrow) {
+            clearArrow()
+            arrow?.let(::showArrow)
+        }
         renderCaption()
     }
 
-    private data class Decision(val target: Target?, val message: Pair<String, GuideCaption.Tone>?)
+    /** [arrow]: 이동 방향 화살표 (상하좌우 밀기, 홈, 뒤로) */
+    private data class Decision(
+        val target: Target?,
+        val message: Pair<String, GuideCaption.Tone>?,
+        val arrow: DirectionHint? = null,
+    )
 
     private fun decide(foreground: String?): Decision {
         val active = GuideSession.active
@@ -233,12 +248,14 @@ class GuideService : AccessibilityService() {
         // 누를 곳을 못 찾음: 기다렸다가 스크롤 안내를 덧붙임
         if (noTargetSince == 0L) noTargetSince = SystemClock.uptimeMillis()
         var text = captionString(step.caption, step.arg)
+        var arrow: DirectionHint? = null
         if (screen.hasScrollable && SystemClock.uptimeMillis() - noTargetSince > SCROLL_TIP_AFTER_MS) {
             text += " " + getString(R.string.caption_scroll_tip)
+            arrow = DirectionHint.UP // 아래 내용을 보려면 위로 밀기
         } else if (screen.hasScrollable) {
             scheduleLater(SCROLL_TIP_AFTER_MS)
         }
-        return Decision(null, text to GuideCaption.Tone.GUIDE)
+        return Decision(null, text to GuideCaption.Tone.GUIDE, arrow)
     }
 
     // ───────────────────────── 화면 안내 AI (#16) ─────────────────────────
@@ -254,6 +271,12 @@ class GuideService : AccessibilityService() {
     private var aiFailedSay: String? = null
     private val aiHistory = ArrayDeque<String>()
     private var aiDoneScheduled = false
+    /** 밀기 안내 중 찾는 글자 (화면에 나타나면 서버를 다시 부르지 않고 바로 짚음) */
+    private var aiSeek: String? = null
+    /** 찾는 글자를 짚은 화면 (다른 화면으로 넘어가면 찾기를 끝냄) */
+    private var aiSeekFoundOn: String? = null
+    /** 마지막 밀기 화살표 (새 화면 답을 기다리는 동안에도 유지해서 깜빡이지 않게) */
+    private var aiLastSwipe: DirectionHint? = null
 
     private fun resetAi() {
         aiPending = null
@@ -262,6 +285,9 @@ class GuideService : AccessibilityService() {
         aiFailedSay = null
         aiHistory.clear()
         aiDoneScheduled = false
+        aiSeek = null
+        aiSeekFoundOn = null
+        aiLastSwipe = null
     }
 
     /**
@@ -274,8 +300,28 @@ class GuideService : AccessibilityService() {
         val answer = aiAnswer?.takeIf { it.first == fingerprint }?.second
         if (answer != null) return applyAi(answer, captured, windowId, foreground)
 
+        // 밀다가 찾던 글자가 나타나면 바로 짚음 (서버를 부르지 않음)
+        seekDecision(captured, windowId, foreground)?.let { return it }
+
         if (aiPending?.fingerprint != fingerprint) requestAi(active, captured, fingerprint)
-        return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO)
+        return Decision(null, getString(R.string.caption_ai_waiting) to GuideCaption.Tone.INFO, aiLastSwipe)
+    }
+
+    private fun seekDecision(captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
+        val seek = aiSeek ?: return null
+        val foundOn = aiSeekFoundOn
+        if (foundOn != null && foundOn != captured.fingerprint) {
+            // 찾은 것을 누르고 다음 화면으로 넘어감: 찾기 끝
+            aiSeek = null
+            aiSeekFoundOn = null
+            aiLastSwipe = null
+            return null
+        }
+        val b = DirectionHint.findSeek(seek, captured.nodes)?.bounds ?: return null
+        aiSeekFoundOn = captured.fingerprint
+        aiLastSwipe = null
+        val say = getString(R.string.caption_seek_found, seek)
+        return Decision(Target(windowId, foreground, Rect(b[0], b[1], b[2], b[3]), text = say), say to GuideCaption.Tone.GUIDE)
     }
 
     private fun requestAi(active: GuideSession.Active, captured: CapturedScreen, fingerprint: String) {
@@ -308,6 +354,17 @@ class GuideService : AccessibilityService() {
 
     private fun applyAi(reply: AiReply, captured: CapturedScreen, windowId: Int, foreground: String): Decision {
         val say = reply.say.ifBlank { getString(R.string.caption_here) }
+        if (reply.type == AiReply.SWIPE) {
+            // 밀기: 화살표 + 찾는 글자 기억 (이미 화면에 있으면 바로 짚음)
+            aiSeek = reply.seekText
+            aiSeekFoundOn = null
+            aiLastSwipe = DirectionHint.fromSwipe(reply.dir)
+            seekDecision(captured, windowId, foreground)?.let { return it }
+            return Decision(null, say to GuideCaption.Tone.GUIDE, aiLastSwipe)
+        }
+        aiSeek = null
+        aiSeekFoundOn = null
+        aiLastSwipe = null
         return when (reply.type) {
             AiReply.DONE -> {
                 if (!aiDoneScheduled) {
@@ -329,7 +386,8 @@ class GuideService : AccessibilityService() {
                     Decision(target, say to GuideCaption.Tone.GUIDE)
                 }
             }
-            else -> Decision(null, say to GuideCaption.Tone.GUIDE)
+            // 말 안내: "홈으로 가세요" → 홈 화살표, "뒤로 가세요" → 뒤로 화살표
+            else -> Decision(null, say to GuideCaption.Tone.GUIDE, DirectionHint.from(reply))
         }
     }
 
@@ -469,6 +527,49 @@ class GuideService : AccessibilityService() {
         val view = highlight ?: return
         highlight = null
         highlightedTarget = null
+        getSystemService(WindowManager::class.java).removeViewImmediate(view)
+    }
+
+    private var arrowView: View? = null
+    private var shownArrow: DirectionHint? = null
+
+    private fun showArrow(hint: DirectionHint) {
+        val label = getString(
+            when (hint) {
+                DirectionHint.UP -> R.string.arrow_up
+                DirectionHint.DOWN -> R.string.arrow_down
+                DirectionHint.LEFT -> R.string.arrow_left
+                DirectionHint.RIGHT -> R.string.arrow_right
+                DirectionHint.HOME -> R.string.arrow_home
+                DirectionHint.BACK -> R.string.arrow_back
+            },
+        )
+        val view = DirectionArrowView(this, hint, label)
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        )
+        try {
+            getSystemService(WindowManager::class.java).addView(view, params)
+        } catch (_: WindowManager.BadTokenException) {
+            return
+        }
+        arrowView = view
+        shownArrow = hint
+        captionHost?.let { reattachCaption() }
+        floatingControls.bringToFront()
+    }
+
+    private fun clearArrow() {
+        val view = arrowView ?: return
+        arrowView = null
+        shownArrow = null
         getSystemService(WindowManager::class.java).removeViewImmediate(view)
     }
 
@@ -755,6 +856,7 @@ class GuideService : AccessibilityService() {
         refreshScheduled = false
         floatingControls.hide()
         clearHighlight()
+        clearArrow()
         removeCaption()
         voice?.stop()
     }

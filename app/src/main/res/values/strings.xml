@@ -65,6 +65,13 @@
     <string name="floating_mic_description">말로 도움 요청하기. 길게 끌면 옮길 수 있어요</string>
     <string name="floating_sos_description">보호자에게 도움 요청 문자 보내기</string>
     <string name="floating_sos">SOS</string>
+    <string name="arrow_up">화면을 위로 밀어 올리세요</string>
+    <string name="arrow_down">화면을 아래로 내리세요</string>
+    <string name="arrow_left">화면을 왼쪽으로 밀어 주세요</string>
+    <string name="arrow_right">화면을 오른쪽으로 밀어 주세요</string>
+    <string name="arrow_home">아래 홈 단추</string>
+    <string name="arrow_back">아래 뒤로 단추</string>
+    <string name="caption_seek_found">‘%1$s’이(가) 보여요. 빨간 테두리를 눌러 주세요.</string>
     <string name="floating_listen_stop">종료</string>
     <string name="floating_listen_stop_description">듣기 그만하기</string>
     <string name="caption_listen_stopped">듣기를 그만뒀어요. 다시 말하려면 말하기 단추를 눌러 주세요.</string>
