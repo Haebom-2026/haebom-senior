@@ -14,11 +14,12 @@ internal fun startGuide(
     foregroundPackage: String? = null,
     done: () -> Unit = {},
     announce: Boolean = true,
+    query: String? = null,
 ) {
     GuideSession.stop()
     if (foregroundPackage != null && GuideTask.forPackage(foregroundPackage) == task) {
         if (announce) GuideCaption.post(activity.getString(R.string.caption_guide_resumed), GuideCaption.Tone.INFO)
-        GuideSession.start(task, foregroundPackage)
+        GuideSession.start(task, foregroundPackage, query)
         done()
         return
     }
@@ -36,7 +37,7 @@ internal fun startGuide(
             val name = activity.getString(task.nameText)
             GuideCaption.post(activity.getString(R.string.caption_guide_started, name), GuideCaption.Tone.INFO)
         }
-        GuideSession.start(task, destination)
+        GuideSession.start(task, destination, query)
         try {
             activity.startActivity(intent.setPackage(destination))
             done()

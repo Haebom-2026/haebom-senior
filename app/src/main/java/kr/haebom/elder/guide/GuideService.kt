@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Rect
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import kr.haebom.elder.GuideInputActivity
@@ -177,9 +179,18 @@ class GuideService : AccessibilityService() {
         }
         leftAppSince = 0L
 
-        val (screen, root) = readGuideScreen(active.task) ?: return Decision(null, guideMessage)
+        val query = active.query
+        val extraLabels = query?.let { setOf(GuideTask.normalize(it)) } ?: emptySet()
+        val (screen, root) = readGuideScreen(active.task, extraLabels) ?: return Decision(null, guideMessage)
         candidateBoxes = screen.controls.filter { it.clickable }.map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
-        val step = active.task.findStep(screen.controls, screen.hasPasswordField)
+        // 검색창이 열리면 말씀하신 검색어를 한 번 대신 넣어 드림 (자동 완성)
+        if (query != null && !active.queryFilled && screen.hasSearchField && !screen.hasPasswordField) {
+            GuideSession.markQueryFilled()
+            if (fillSearchField(active.task, foreground, query)) {
+                scheduleLater(FILL_SETTLE_MS)
+            }
+        }
+        val step = active.task.findStep(screen.controls, screen.hasPasswordField, query, screen.hasSearchField)
         if (step.caption == R.string.guide_authentication_stop) {
             noTargetSince = 0L
             return Decision(null, getString(step.caption) to GuideCaption.Tone.WARN)
@@ -187,12 +198,12 @@ class GuideService : AccessibilityService() {
         val control = step.control
         if (control != null) {
             noTargetSince = 0L
-            val target = Target(root, foreground, control.bounds, step.caption)
+            val target = Target(root, foreground, control.bounds, step.caption, step.arg)
             return Decision(target, captionText(target) to GuideCaption.Tone.GUIDE)
         }
         // 누를 곳을 못 찾음: 기다렸다가 스크롤 안내를 덧붙임
         if (noTargetSince == 0L) noTargetSince = SystemClock.uptimeMillis()
-        var text = getString(step.caption)
+        var text = captionString(step.caption, step.arg)
         if (screen.hasScrollable && SystemClock.uptimeMillis() - noTargetSince > SCROLL_TIP_AFTER_MS) {
             text += " " + getString(R.string.caption_scroll_tip)
         } else if (screen.hasScrollable) {
@@ -202,10 +213,35 @@ class GuideService : AccessibilityService() {
     }
 
     @Suppress("DEPRECATION") // 노드 recycle 은 API 33 미만에서 필요
-    private fun readGuideScreen(task: GuideTask): Pair<GuideScreen, Int>? {
+    private fun readGuideScreen(task: GuideTask, extraLabels: Set<String>): Pair<GuideScreen, Int>? {
         val root = rootInActiveWindow ?: return null
         return try {
-            GuideScreen.read(root, task) to root.windowId
+            GuideScreen.read(root, task, extraLabels) to root.windowId
+        } finally {
+            root.recycle()
+        }
+    }
+
+    /** 작업의 검색창([GuideTask.searchFieldIds])에 검색어를 넣음. 넣었으면 true */
+    @Suppress("DEPRECATION")
+    private fun fillSearchField(task: GuideTask, pkg: String, query: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        try {
+            for (id in task.searchFieldIds) {
+                val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$id")
+                try {
+                    val field = nodes.firstOrNull { it.isVisibleToUser && it.isEditable && !it.isPassword } ?: continue
+                    val args = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, query)
+                    }
+                    val done = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    android.util.Log.i(TAG, "검색어 넣기 ($id): ${if (done) "성공" else "실패"}")
+                    return done
+                } finally {
+                    nodes.forEach { it.recycle() }
+                }
+            }
+            return false
         } finally {
             root.recycle()
         }
@@ -458,7 +494,7 @@ class GuideService : AccessibilityService() {
     }
 
     private fun captionText(target: Target): String {
-        val text = getString(target.caption ?: R.string.caption_here)
+        val text = target.caption?.let { captionString(it, target.captionArg) } ?: getString(R.string.caption_here)
         val bounds = target.bounds ?: return text
         val screen = screenSize()
         val columns = listOf(
@@ -471,6 +507,9 @@ class GuideService : AccessibilityService() {
         val position = getString(R.string.guide_location, getString(columns[row][column]))
         return getString(R.string.guide_caption_with_location, text, position)
     }
+
+    private fun captionString(res: Int, arg: String?): String =
+        if (arg == null) getString(res) else getString(res, arg)
 
     private fun appLabel(pkg: String): String = try {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -511,6 +550,7 @@ class GuideService : AccessibilityService() {
         val packageName: String,
         val bounds: Rect?,
         val caption: Int? = null,
+        val captionArg: String? = null,
     ) {
         fun box(): Box? = bounds?.let { Box(it.left, it.top, it.right, it.bottom) }
     }
@@ -519,7 +559,9 @@ class GuideService : AccessibilityService() {
         const val SCREEN_UPDATE_INTERVAL_MS = 500L
         const val LEFT_APP_GRACE_MS = 1_500L
         const val SCROLL_TIP_AFTER_MS = 8_000L
+        const val FILL_SETTLE_MS = 700L
         const val DEFAULT_CAPTION_HEIGHT_DP = 120
+        const val TAG = "HaebomGuide"
 
         /** 안내 중에 잠깐 떠도 "앱에서 나갔다"고 보지 않는 창 */
         val PASS_THROUGH = setOf(

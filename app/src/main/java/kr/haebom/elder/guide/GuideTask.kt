@@ -43,7 +43,7 @@ internal enum class GuideTask(val appPackage: String?) {
     val allowedLabels: Set<String>
         get() = when (this) {
             CONTACTS -> CONTACT_ADD + CONTACT_SAVE + CONTACT_BACKUP + CONTACT_CANCEL
-            YOUTUBE -> YOUTUBE_SEARCH
+            YOUTUBE -> YOUTUBE_SEARCH + YOUTUBE_RESULTS
             GOV24 -> AUTHENTICATION + GOV24_CERTIFICATE + GOV24_APPLY
         }
 
@@ -51,7 +51,16 @@ internal enum class GuideTask(val appPackage: String?) {
     val searchFieldIds: Set<String>
         get() = if (this == YOUTUBE) setOf("search_edit_text") else emptySet()
 
-    fun findStep(controls: List<ScreenControl>, hasPasswordField: Boolean): GuideStep {
+    /**
+     * 지금 화면에서 할 일.
+     * [query] 는 어르신이 말한 검색어(유튜브), [searchField] 는 검색창이 열려 있는지.
+     */
+    fun findStep(
+        controls: List<ScreenControl>,
+        hasPasswordField: Boolean,
+        query: String? = null,
+        searchField: Boolean = false,
+    ): GuideStep {
         if (hasPasswordField || (this == GOV24 && controls.any { it.matches(AUTHENTICATION) })) {
             return GuideStep(R.string.guide_authentication_stop)
         }
@@ -71,10 +80,7 @@ internal enum class GuideTask(val appPackage: String?) {
                     )
                 }
             }
-            YOUTUBE -> controlStep(
-                controls, YOUTUBE_SEARCH,
-                R.string.guide_youtube_search, R.string.guide_youtube_enter_query,
-            )
+            YOUTUBE -> youtubeStep(controls, query, searchField)
             GOV24 -> {
                 val service = controls.firstOrNull { it.clickable && it.matches(GOV24_CERTIFICATE) }
                 val certificateScreen = controls.any { it.matches(GOV24_CERTIFICATE) }
@@ -90,6 +96,31 @@ internal enum class GuideTask(val appPackage: String?) {
         }
     }
 
+    private fun youtubeStep(controls: List<ScreenControl>, query: String?, searchField: Boolean): GuideStep {
+        if (controls.any { it.matches(YOUTUBE_RESULTS) }) return GuideStep(R.string.guide_youtube_results)
+        if (query == null) {
+            return controlStep(
+                controls, YOUTUBE_SEARCH,
+                R.string.guide_youtube_search, R.string.guide_youtube_enter_query,
+            )
+        }
+        if (searchField) {
+            // 검색어를 넣어 드린 뒤: 같은 글자의 추천 검색어를 짚고, 없으면 키보드의 검색 단추
+            val suggestion = controls.firstOrNull { it.clickable && normalize(query) in it.labels }
+            return if (suggestion != null) {
+                GuideStep(R.string.guide_youtube_pick_suggestion, suggestion, query)
+            } else {
+                GuideStep(R.string.guide_youtube_press_enter, arg = query)
+            }
+        }
+        val search = controls.firstOrNull { it.clickable && it.matches(YOUTUBE_SEARCH) }
+        return if (search != null) {
+            GuideStep(R.string.guide_youtube_search_query, search, query)
+        } else {
+            GuideStep(R.string.guide_youtube_find_search, arg = query)
+        }
+    }
+
     companion object {
         private val CONTACT_PACKAGES = setOf(
             "com.android.contacts", "com.google.android.contacts", "com.samsung.android.app.contacts",
@@ -99,6 +130,8 @@ internal enum class GuideTask(val appPackage: String?) {
         private val CONTACT_BACKUP = setOf("addaccount", "계정추가")
         private val CONTACT_CANCEL = setOf("cancel", "취소")
         private val YOUTUBE_SEARCH = setOf("검색", "search", "menu_item_search")
+        /** 검색 결과 화면 위쪽의 검색어 칸 */
+        private val YOUTUBE_RESULTS = setOf("search_query")
         private val GOV24_APPLY = setOf("발급하기", "신청하기")
 
         private val AUTHENTICATION = setOf(
@@ -143,6 +176,25 @@ internal enum class GuideTask(val appPackage: String?) {
             }
         }
 
+        private val QUERY_APP_WORDS = Regex("""(?i)(유튜브|youtube)\s*(에서|에|으로|로)?""")
+        private val QUERY_VERB = Regex(
+            """(을|를)?\s*(검색|찾아|틀어|보여|재생|열어|켜)\s*(해)?\s*(줘|주세요|줄래|봐|줘요|드려)?\s*[.!?~]*\s*$""",
+        )
+        private val QUERY_FILLERS = setOf("좀", "한번", "검색", "안내", "영상", "동영상")
+
+        /**
+         * 말한 명령에서 유튜브 검색어만 뽑습니다. 없으면 null.
+         * "유튜브에 임영웅 검색해줘" → "임영웅", "유튜브에서 트로트 노래 틀어 줘" → "트로트 노래"
+         */
+        fun youtubeQuery(command: String): String? {
+            var text = command.trim()
+            text = QUERY_APP_WORDS.replace(text, " ")
+            text = QUERY_VERB.replace(text, "")
+            val words = text.split(Regex("""\s+""")).filter { it.isNotBlank() && it !in QUERY_FILLERS }
+            val query = words.joinToString(" ").trim()
+            return query.takeIf { it.isNotEmpty() && it.length <= 40 }
+        }
+
         fun isFinance(packageName: String?, command: String): Boolean {
             val packageLower = packageName.orEmpty().lowercase(Locale.ROOT)
             val normalized = normalize(command)
@@ -183,4 +235,5 @@ internal enum class GuideTask(val appPackage: String?) {
     }
 }
 
-internal data class GuideStep(val caption: Int, val control: ScreenControl? = null)
+/** [arg] 는 자막 문장에 끼워 넣을 글자 (예: 검색어) */
+internal data class GuideStep(val caption: Int, val control: ScreenControl? = null, val arg: String? = null)

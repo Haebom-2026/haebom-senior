@@ -230,7 +230,8 @@ class GuideInputActivity : Activity() {
             val text = getString(R.string.caption_heard_task, spoken, next)
             status?.text = text
             GuideCaption.post(text, GuideCaption.Tone.INFO)
-            startGuide(this, task, foregroundPackage, ::finish, announce = false)
+            val query = if (task == GuideTask.YOUTUBE) GuideTask.youtubeQuery(spoken) else null
+            startGuide(this, task, foregroundPackage, ::finish, announce = false, query = query)
         }
     }
 
