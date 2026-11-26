@@ -81,7 +81,12 @@ class GuideInputActivity : Activity() {
             addView(ElderUi.button(context, "🎤 " + getString(R.string.voice_tap), ElderUi.Kind.SECONDARY) { requestSpeech() })
             addView(ElderUi.button(context, getString(R.string.cancel), ElderUi.Kind.QUIET) { finish() })
         })
-        window.decorView.post { if (!isFinishing) requestSpeech() }
+        // 화면 위에서 이미 들은 말이면 다시 듣지 않고 바로 처리 (확인 창이 필요한 일)
+        val heardCommand = intent.getStringExtra(EXTRA_COMMAND)
+        window.decorView.post {
+            if (isFinishing) return@post
+            if (heardCommand.isNullOrBlank()) requestSpeech() else handleCommand(heardCommand)
+        }
     }
 
     private fun setStatus(textId: Int, tone: GuideCaption.Tone, caption: Boolean = true) {
@@ -363,11 +368,19 @@ class GuideInputActivity : Activity() {
     companion object {
         private const val EXTRA_SOS = "sos"
         private const val EXTRA_FOREGROUND_PACKAGE = "foreground_package"
+        private const val EXTRA_COMMAND = "command"
         private const val MICROPHONE_REQUEST = 8
 
-        fun intent(context: Context, sos: Boolean = false, foregroundPackage: String? = null): Intent =
+        /** [command]: 화면 위에서 이미 들은 말 (있으면 듣지 않고 바로 처리) */
+        fun intent(
+            context: Context,
+            sos: Boolean = false,
+            foregroundPackage: String? = null,
+            command: String? = null,
+        ): Intent =
             Intent(context, GuideInputActivity::class.java)
                 .putExtra(EXTRA_SOS, sos)
                 .putExtra(EXTRA_FOREGROUND_PACKAGE, foregroundPackage)
+                .putExtra(EXTRA_COMMAND, command)
     }
 }

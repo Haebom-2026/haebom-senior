@@ -74,8 +74,12 @@ class GuideService : AccessibilityService() {
     private val floatingControls by lazy {
         FloatingGuideControls(
             context = this,
-            onMicrophone = { openInput(sos = false) },
+            onMicrophone = { onMicrophone() },
             onSos = { openInput(sos = true) },
+            onStop = {
+                GuideSession.stop()
+                GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
+            },
         )
     }
     private var voice: GuideVoice? = null
@@ -610,12 +614,96 @@ class GuideService : AccessibilityService() {
         }
     }
 
-    private fun openInput(sos: Boolean) {
-        val current = activeScreenPackage()
+    private fun openInput(sos: Boolean, command: String? = null, foreground: String? = activeScreenPackage()) {
+        stopListening(announce = false)
         floatingControls.hide()
         startActivity(
-            GuideInputActivity.intent(this, sos, current).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            GuideInputActivity.intent(this, sos, foreground, command).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+
+    // ───────────────────────── 화면 위에서 바로 말하기 ─────────────────────────
+
+    private val listener by lazy { VoiceListener(this) }
+    /** 말하기를 누른 때의 앱 (들은 말을 이 화면 기준으로 판단) */
+    private var listeningForeground: String? = null
+
+    /** 말하기 단추: 듣는 중이 아니면 지금 화면 그대로 듣기 시작, 듣는 중이면 종료 */
+    private fun onMicrophone() {
+        if (listener.isListening) {
+            stopListening(announce = true)
+            return
+        }
+        val foreground = activeScreenPackage()
+        if (!listener.canListenInPlace()) {
+            // 마이크 권한이 아직 없거나 기기 내 인식이 없으면 예전처럼 말하기 창에서
+            openInput(sos = false, foreground = foreground)
+            return
+        }
+        voice?.stop() // 안내 음성이 마이크에 들어가지 않게
+        listeningForeground = foreground
+        val started = listener.start(object : VoiceListener.Callback {
+            override fun onReady() {
+                GuideCaption.post(getString(R.string.caption_listening), GuideCaption.Tone.LISTEN, durationMs = LISTEN_CAPTION_MS)
+            }
+
+            override fun onPartial(text: String) = GuideCaption.heard(text)
+
+            override fun onFinal(text: String) {
+                floatingControls.setListening(false)
+                handleSpoken(text, listeningForeground)
+            }
+
+            override fun onFailed(error: Int) {
+                floatingControls.setListening(false)
+                val message = when (error) {
+                    android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+                    android.speech.SpeechRecognizer.ERROR_NO_MATCH -> R.string.caption_no_speech
+                    android.speech.SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+                    android.speech.SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> R.string.voice_device_unavailable
+                    else -> R.string.caption_unrecognized
+                }
+                GuideCaption.post(getString(message), GuideCaption.Tone.WARN)
+            }
+        })
+        if (started) {
+            floatingControls.setListening(true)
+        } else {
+            openInput(sos = false, foreground = foreground)
+        }
+    }
+
+    private fun stopListening(announce: Boolean) {
+        if (!listener.isListening) return
+        listener.stop()
+        floatingControls.setListening(false)
+        if (announce) GuideCaption.post(getString(R.string.caption_listen_stopped), GuideCaption.Tone.INFO)
+    }
+
+    /** 들은 말 처리: 바로 할 수 있는 일은 지금 화면에서, 확인 창이 필요한 일은 말하기 창으로 */
+    private fun handleSpoken(spoken: String, foreground: String?) {
+        when (val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)) {
+            CommandRoute.Empty -> GuideCaption.post(getString(R.string.caption_no_speech), GuideCaption.Tone.WARN)
+            CommandRoute.Unrecognized -> {
+                GuideCaption.heard(spoken)
+                GuideCaption.post(getString(R.string.caption_unrecognized), GuideCaption.Tone.WARN)
+            }
+            CommandRoute.NeedsWindow -> openInput(sos = false, command = spoken, foreground = foreground)
+            CommandRoute.Ai -> {
+                GuideCaption.post(
+                    getString(R.string.caption_heard_task, spoken, getString(R.string.caption_ai_started)),
+                    GuideCaption.Tone.INFO,
+                )
+                kr.haebom.elder.startAiGuide(this, spoken, foreground)
+            }
+            is CommandRoute.Task -> {
+                GuideCaption.post(
+                    getString(R.string.caption_heard_task, spoken, getString(route.task.nextStepText())),
+                    GuideCaption.Tone.INFO,
+                )
+                kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
+            }
+        }
     }
 
     private fun captionText(target: Target): String {
@@ -658,6 +746,7 @@ class GuideService : AccessibilityService() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun disconnect() {
+        stopListening(announce = false)
         if (connected) DevScreenHook.sink?.onDisconnected()
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
@@ -689,6 +778,8 @@ class GuideService : AccessibilityService() {
         const val FILL_SETTLE_MS = 700L
         /** AI 가 "다 됐어요"라고 한 뒤 자막을 잠시 보여 주고 안내를 마침 */
         const val AI_DONE_LINGER_MS = 6_000L
+        /** "듣고 있어요" 자막 (인식이 끝나면 다른 자막으로 바뀜) */
+        const val LISTEN_CAPTION_MS = 15_000L
         const val DEFAULT_CAPTION_HEIGHT_DP = 120
         const val TAG = "HaebomGuide"
 

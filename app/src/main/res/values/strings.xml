@@ -65,6 +65,11 @@
     <string name="floating_mic_description">말로 도움 요청하기. 길게 끌면 옮길 수 있어요</string>
     <string name="floating_sos_description">보호자에게 도움 요청 문자 보내기</string>
     <string name="floating_sos">SOS</string>
+    <string name="floating_listen_stop">종료</string>
+    <string name="floating_listen_stop_description">듣기 그만하기</string>
+    <string name="caption_listen_stopped">듣기를 그만뒀어요. 다시 말하려면 말하기 단추를 눌러 주세요.</string>
+    <string name="floating_stop">그만</string>
+    <string name="floating_stop_description">화면 안내 그만하기</string>
     <string name="guide_bank_stop">금융 화면에서는 해봄이 화면을 읽거나 입력을 안내하지 않아요. 도움이 필요하면 보호자에게 문의해 주세요.</string>
     <string name="guide_contact_add">빨간 테두리의 새 연락처 버튼을 눌러 주세요.</string>
     <string name="guide_location">화면 %1$s에 있어요.</string>

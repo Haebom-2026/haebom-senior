@@ -31,6 +31,7 @@ internal class FloatingGuideControls(
     private val context: Context,
     private val onMicrophone: () -> Unit,
     private val onSos: () -> Unit,
+    private val onStop: () -> Unit,
 ) {
     private val manager = context.getSystemService(WindowManager::class.java)
     private val prefs = context.getSharedPreferences("floating_controls", Context.MODE_PRIVATE)
@@ -39,12 +40,15 @@ internal class FloatingGuideControls(
     private val width = dp(96)
     private val micSize = dp(80)
     private val sosSize = dp(66)
+    private val stopSize = dp(66)
     private var panel: LinearLayout? = null
     private var mic: TextView? = null
     private var sos: TextView? = null
+    private var stop: TextView? = null
     private var params: WindowManager.LayoutParams? = null
     private var sosVisible = true
     private var guiding = false
+    private var listening = false
     private var blocked: List<Box> = emptyList()
     private var mover: ValueAnimator? = null
     private val pulse = ValueAnimator.ofFloat(1f, 1.1f).apply {
@@ -69,7 +73,9 @@ internal class FloatingGuideControls(
     val isShowing: Boolean get() = panel != null
 
     private val height: Int
-        get() = dp(8) + micSize + if (sosVisible) dp(12) + sosSize + dp(8) else dp(8)
+        get() = dp(8) + micSize +
+            (if (guiding) dp(12) + stopSize else 0) +
+            (if (sosVisible) dp(12) + sosSize else 0) + dp(8)
 
     fun show() {
         if (panel != null) return
@@ -80,16 +86,21 @@ internal class FloatingGuideControls(
             clipChildren = false
             clipToPadding = false
         }
-        val micButton = circle(context.getString(R.string.floating_mic), "🎤", Color.rgb(30, 76, 156), micSize).also {
-            it.contentDescription = context.getString(R.string.floating_mic_description)
-        }
+        val micButton = circle(context.getString(R.string.floating_mic), "🎤", MIC_COLOR, micSize).also(::paintMic)
         val sosButton = circle(context.getString(R.string.floating_sos), "🆘", Color.rgb(176, 32, 42), sosSize).also {
             it.contentDescription = context.getString(R.string.floating_sos_description)
             it.visibility = if (sosVisible) View.VISIBLE else View.GONE
         }
+        // 안내 중에만 보이는 "그만" 단추
+        val stopButton = circle(context.getString(R.string.floating_stop), "⏹", Color.rgb(90, 90, 96), stopSize).also {
+            it.contentDescription = context.getString(R.string.floating_stop_description)
+            it.visibility = if (guiding) View.VISIBLE else View.GONE
+        }
         column.addView(micButton, LinearLayout.LayoutParams(micSize, micSize))
+        column.addView(stopButton, LinearLayout.LayoutParams(stopSize, stopSize).apply { topMargin = dp(12) })
         column.addView(sosButton, LinearLayout.LayoutParams(sosSize, sosSize).apply { topMargin = dp(12) })
         setupDrag(column, micButton, onMicrophone)
+        setupDrag(column, stopButton, onStop)
         setupDrag(column, sosButton, onSos)
 
         val start = plannedPosition()
@@ -112,6 +123,7 @@ internal class FloatingGuideControls(
         panel = column
         mic = micButton
         sos = sosButton
+        stop = stopButton
         params = layout
         applyPulse()
     }
@@ -123,6 +135,7 @@ internal class FloatingGuideControls(
         panel = null
         mic = null
         sos = null
+        stop = null
         params = null
         manager.removeViewImmediate(controls)
     }
@@ -144,9 +157,35 @@ internal class FloatingGuideControls(
         moveTo(plannedPosition())
     }
 
+    /** 듣는 중이면 말하기 단추가 "종료" 단추로 바뀜 (누르면 듣기를 그만둠) */
+    fun setListening(active: Boolean) {
+        if (listening == active) return
+        listening = active
+        mic?.let(::paintMic)
+        applyPulse()
+    }
+
+    private fun paintMic(button: TextView) {
+        if (listening) {
+            button.text = "⏹\n" + context.getString(R.string.floating_listen_stop)
+            button.contentDescription = context.getString(R.string.floating_listen_stop_description)
+            (button.background as? GradientDrawable)?.setColor(LISTENING_COLOR)
+        } else {
+            button.text = "🎤\n" + context.getString(R.string.floating_mic)
+            button.contentDescription = context.getString(R.string.floating_mic_description)
+            (button.background as? GradientDrawable)?.setColor(MIC_COLOR)
+        }
+    }
+
     fun setGuiding(active: Boolean) {
         if (guiding == active) return
         guiding = active
+        stop?.visibility = if (active) View.VISIBLE else View.GONE
+        params?.let { layout ->
+            layout.height = height
+            panel?.let { manager.updateViewLayout(it, layout) }
+            moveTo(plannedPosition())
+        }
         applyPulse()
     }
 
@@ -199,7 +238,7 @@ internal class FloatingGuideControls(
     }
 
     private fun applyPulse() {
-        if (guiding && panel != null && ValueAnimator.areAnimatorsEnabled()) {
+        if ((guiding || listening) && panel != null && ValueAnimator.areAnimatorsEnabled()) {
             if (!pulse.isRunning) pulse.start()
         } else {
             pulse.cancel()
@@ -290,5 +329,8 @@ internal class FloatingGuideControls(
     private companion object {
         const val KEY_X = "x"
         const val KEY_Y = "y"
+        val MIC_COLOR = Color.rgb(30, 76, 156)
+        /** 듣는 중: 눈에 띄는 주황 */
+        val LISTENING_COLOR = Color.rgb(214, 92, 0)
     }
 }
