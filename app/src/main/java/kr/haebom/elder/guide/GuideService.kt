@@ -46,10 +46,12 @@ class GuideService : AccessibilityService() {
     override fun onServiceConnected() {
         connected = true
         GuideSession.onChange = sessionChanged
+        DevScreenHook.sink?.onConnected(this)
         scheduleRefresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        DevScreenHook.sink?.onScreenChanged(this)
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
@@ -277,6 +279,7 @@ class GuideService : AccessibilityService() {
     }
 
     private fun disconnect() {
+        if (connected) DevScreenHook.sink?.onDisconnected()
         connected = false
         if (GuideSession.onChange === sessionChanged) GuideSession.onChange = null
         floatingControls.hide()

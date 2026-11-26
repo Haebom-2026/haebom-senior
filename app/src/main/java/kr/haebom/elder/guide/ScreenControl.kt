@@ -60,7 +60,7 @@ internal data class GuideScreen(
             inspect(root)
             return GuideScreen(if (hasPassword) emptyList() else controls, hasPassword)
         }
-        private fun isProtectedInput(type: Int): Boolean {
+        internal fun isProtectedInput(type: Int): Boolean {
             val variation = type and InputType.TYPE_MASK_VARIATION
             return when (type and InputType.TYPE_MASK_CLASS) {
                 InputType.TYPE_CLASS_TEXT -> variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
@@ -71,7 +71,7 @@ internal data class GuideScreen(
             }
         }
 
-        private fun isProtectedId(resource: String?): Boolean {
+        internal fun isProtectedId(resource: String?): Boolean {
             val id = resource?.substringAfterLast('/')?.lowercase(java.util.Locale.ROOT) ?: return false
             return listOf("password", "passcode", "otp_code", "ssn", "resident_number").any { it in id }
         }
