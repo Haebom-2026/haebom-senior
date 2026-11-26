@@ -85,6 +85,8 @@ class GuideService : AccessibilityService() {
         )
     }
     private var voice: GuideVoice? = null
+    /** 비밀번호·인증 화면이라 잠깐 멈춘 상태 (벗어나면 "이어서 안내할게요") */
+    private var sensitivePaused = false
     /** AI 상태가 어느 안내의 것인지 (멈춤·이어서는 같은 안내라 답을 그대로 씀) */
     private var aiSerial = -1L
     private val sessionChanged: () -> Unit = {
@@ -309,8 +311,16 @@ class GuideService : AccessibilityService() {
         if (captured?.blocked == true || screen?.hasPasswordField == true ||
             step?.caption == R.string.guide_authentication_stop
         ) {
+            // 민감 정보는 직접: 표시·AI 없이 잠깐 멈춤 (안내는 끝내지 않음)
             noTargetSince = 0L
+            sensitivePaused = true
             return Decision(null, getString(R.string.guide_authentication_stop) to GuideCaption.Tone.WARN)
+        }
+        if (sensitivePaused) {
+            // 직접 입력을 마치고 민감한 입력이 없는 화면으로 넘어옴: 이어서 안내
+            sensitivePaused = false
+            justAuthenticated = true
+            GuideCaption.post(getString(R.string.caption_sensitive_done), GuideCaption.Tone.INFO, durationMs = 3_000)
         }
 
         // 검색창이 열림 + 아직 검색어를 안 넣음: 검색창을 짚고 아래 "자동완성 입력" 단추 (어르신이 눌러야 넣음).
@@ -387,6 +397,7 @@ class GuideService : AccessibilityService() {
         aiDoneScheduled = false
         aiAsked = false
         aiAskSay = null
+        sensitivePaused = false
         aiSeenFingerprint = null
         aiSeek = null
         aiSeekFoundOn = null
@@ -473,11 +484,27 @@ class GuideService : AccessibilityService() {
         val client = ai ?: return
         val size = screenSize()
         val screenJson = ScreenPayload.screenObject(captured.packageName, size.x, size.y, captured.nodes) ?: return
+        val state = stateSlot(captured)
+        val fields = captured.nodes.filter { it.editable }
+        android.util.Log.i(
+            TAG,
+            "AI 요청: 노드 ${captured.nodes.size}개, 입력 칸 ${fields.size}개(채워짐 ${fields.count { it.filled }}), 상태='${state[STATE_SLOT].orEmpty()}'",
+        )
         val id = client.request(
-            active.goal, active.utterance, active.slots, screenJson, aiHistory.toList(), settings.deviceId,
+            active.goal, active.utterance, active.slots + (SAFETY_SLOT to SAFETY_NOTE) + (FORM_SLOT to FORM_NOTE) + state, screenJson, aiHistory.toList(), settings.deviceId,
         ) { requestId, outcome -> onAiOutcome(requestId, fingerprint, outcome) }
         aiPending = AiPending(id, fingerprint)
     }
+
+    /** 화면 상태 요약 (로그인·입력 중인 칸·못 누르는 단추·키보드·방금 인증) → slots.state */
+    private fun stateSlot(captured: CapturedScreen): Map<String, String> {
+        val summary = ScreenState.summary(captured.nodes, keyboardOpen = keyboardTop != null, justAuthenticated = justAuthenticated)
+        justAuthenticated = false
+        return if (summary.isEmpty()) emptyMap() else mapOf(STATE_SLOT to summary)
+    }
+
+    /** 비밀번호·인증 화면을 막 벗어남 (다음 AI 요청에 한 번 알림) */
+    private var justAuthenticated = false
 
     private fun onAiOutcome(requestId: Int, fingerprint: String, outcome: AiOutcome) {
         // 더 새 요청이 있거나 안내가 바뀌었으면 버림
@@ -485,10 +512,12 @@ class GuideService : AccessibilityService() {
         aiPending = null
         val reply = (outcome as? AiOutcome.Reply)?.reply
         val knownTask = GuideSession.active?.task != null
-        aiAsked = reply?.type == AiReply.ASK && !knownTask
+        // 앱이 아는 일에서 막연히 되묻기만 하면(예: 정부24 "무엇을 도와드릴까요?") 앱의 안내로 계속.
+        // 화면 내용을 묻는 질문(로그인 뒤 "주소가 같나요?")은 그대로 읽고 대답을 들음
+        val genericAskInKnownTask = knownTask && reply?.isGenericAsk == true
+        aiAsked = reply?.type == AiReply.ASK && !genericAskInKnownTask
         aiAskSay = reply?.say?.takeIf { aiAsked && it.isNotBlank() }
-        if (reply == null || reply.isFallback || (reply.type == AiReply.ASK && knownTask)) {
-            // 앱이 아는 일인데 AI 가 되묻기만 하면(예: 정부24 "무엇을 도와드릴까요?") 앱의 안내로 계속
+        if (reply == null || reply.isFallback || genericAskInKnownTask) {
             aiFailedFingerprint = fingerprint
             aiFailedSay = reply?.say?.takeUnless { reply.type == AiReply.ASK }
         } else {
@@ -724,7 +753,9 @@ class GuideService : AccessibilityService() {
                 // AI 의 물음: 다 읽은 뒤 바로 대답을 들음 (단추를 누르지 않아도 되게)
                 aiAskSay = null
                 val serial = GuideSession.serial
+                android.util.Log.i(TAG, "AI 물음 읽기 → 끝나면 듣기")
                 speak(message.first) {
+                    android.util.Log.i(TAG, "AI 물음 다 읽음 (asked=$aiAsked, listening=${listener.isListening})")
                     if (GuideSession.serial == serial && aiAsked && !listener.isListening) {
                         startListening(fallbackToWindow = false)
                     }
@@ -1099,7 +1130,7 @@ class GuideService : AccessibilityService() {
 
     /** L2 금융: 막지 않음. 바로 보호자 알림(5분에 한 번) + 경고 카드, [계속하기]면 말한 은행 앱을 엶 */
     private fun warnFinance(spoken: String, assessment: Assessment, foreground: String?) {
-        GuideSession.stop()
+        GuideSession.stop() // 하던 안내는 끝내고, [계속하기]를 누르면 금융 안내를 새로 시작
         val bankPackage = Sensitivity.financeAppFor(spoken)?.takeIf { packageManager.getLaunchIntentForPackage(it) != null }
         val target = bankPackage ?: foreground?.takeIf { SensitiveApps.category(it) == SensitiveApps.CATEGORY_FINANCE }
         if (SensitiveAlerter.claim(SensitiveAlerter.keyFor(assessment, target))) {
@@ -1112,11 +1143,15 @@ class GuideService : AccessibilityService() {
             message = getString(R.string.alert_finance_command),
             actions = listOf(
                 OverlayCard.Action(getString(R.string.alert_continue)) {
+                    // 계속하기: 은행 앱을 열고 화면 안내도 시작 (비밀번호·인증은 직접, 끝나면 이어서)
+                    val appName = target?.let(::appLabel)
+                    GuideSession.startAi(spoken, GuideTask.GOAL_BANK, appName?.let { mapOf("app" to it) }.orEmpty())
                     val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
                     when {
                         launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
                     }
+                    GuideCaption.post(getString(R.string.caption_finance_guide), GuideCaption.Tone.INFO)
                 },
                 OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {},
             ),
@@ -1222,6 +1257,16 @@ class GuideService : AccessibilityService() {
         const val FILL_SETTLE_MS = 700L
         /** AI 가 "다 됐어요"라고 한 뒤 자막을 잠시 보여 주고 안내를 마침 */
         const val AI_DONE_LINGER_MS = 6_000L
+        /**
+         * AI 요청마다 함께 보내는 원칙 (slots 값 100자 이내). 서버 계약상 slots 는 말에서 뽑은 값이지만,
+         * 모델이 함께 읽으므로 "직접 입력한 뒤에는 이어서 안내" 원칙을 알려 줌.
+         */
+        const val SAFETY_SLOT = "rule"
+        const val SAFETY_NOTE = "비밀번호·인증·결제 확정은 어르신이 직접 함. 입력이 끝나 민감한 입력이 없는 화면이면 이어서 다음 단계를 안내"
+        /** 신청서처럼 칸이 여럿인 화면에서의 원칙 (100자 이내) */
+        const val STATE_SLOT = "state"
+        const val FORM_SLOT = "form"
+        const val FORM_NOTE = "이미 입력·선택된 항목은 넘어가고 빈 항목만 안내. 미리 채워진 값이 맞는지 확인이 꼭 필요할 때만 한 번 물어봄"
         /** 화면이 이만큼 그대로일 때 AI 에 물음 */
         const val AI_SETTLE_MS = 700L
         /** "듣고 있어요" 자막 (인식이 끝나면 다른 자막으로 바뀜) */

@@ -50,6 +50,10 @@ internal data class CapturedScreen(
                             scrollable = node.isScrollable,
                             checked = node.isChecked,
                             selected = node.isSelected,
+                            hint = node.hintText?.toString(),
+                            enabled = node.isEnabled,
+                            focused = node.isFocused,
+                            filled = node.isEditable && !node.isShowingHintText && !node.text.isNullOrBlank(),
                         )
                     }
                 }
@@ -65,7 +69,10 @@ internal data class CapturedScreen(
             }
 
             visit(root)
-            return CapturedScreen(pkg, if (blocked) emptyList() else nodes, blocked)
+            if (blocked) return CapturedScreen(pkg, emptyList(), blocked = true)
+            // 민감한 말이 붙은 입력 칸이면 멈춤, 상관없는 안내 문구는 그 글자만 빼고 보냄
+            val safe = SensitiveText.sanitize(nodes)
+            return CapturedScreen(pkg, safe.nodes, safe.blocked)
         }
     }
 }

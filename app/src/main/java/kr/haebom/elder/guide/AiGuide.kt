@@ -25,6 +25,12 @@ internal data class AiReply(
     /** 짚을 요소가 있는 응답 */
     val pointsAtTarget: Boolean get() = target != null && (type == HIGHLIGHT || type == SUGGEST)
 
+    /**
+     * 할 일을 몰라서 묻는 막연한 질문 ("무엇을 도와드릴까요?"). 앱이 아는 일에서는 앱의 안내로 넘김.
+     * 화면 내용에 대한 질문("주소가 지금 사시는 곳과 같나요?")은 의미 있는 질문이라 그대로 씀
+     */
+    val isGenericAsk: Boolean get() = type == ASK && GENERIC_ASK.any { say.replace(" ", "").contains(it) }
+
     /** 서버가 모델을 못 써서 대신 보낸 문장 ("서버가 잠시 바빠요" 등): 로컬 안내를 유지하는 게 나음 */
     val isFallback: Boolean get() = type == SAY && FALLBACK_PREFIXES.any { say.startsWith(it) }
 
@@ -36,7 +42,15 @@ internal data class AiReply(
         const val DONE = "done"
         const val ASK = "ask"
 
-        private val FALLBACK_PREFIXES = listOf("서버가 잠시 바빠요", "제가 화면을 잘 못 알아봤어요", "지금 화면을 읽지 못했어요")
+        /**
+         * 서버가 모델 대신 보내는 문장들. "이 화면은 직접 입력해 주세요" 는 서버가 화면 글자에서 '주민등록번호' 같은 말만 봐도
+         * 보내는데(안내 문구 포함), 앱은 실제 비밀번호 칸이 있으면 이미 서버에 보내지 않으므로 앱의 안내로 계속함
+         */
+        private val GENERIC_ASK = listOf("무엇을도와", "어떤일을", "어떤서류", "어떤서비스", "무엇을하고", "어떤것을", "어떤영상", "무엇을찾")
+
+        private val FALLBACK_PREFIXES = listOf(
+            "서버가 잠시 바빠요", "제가 화면을 잘 못 알아봤어요", "지금 화면을 읽지 못했어요", "이 화면은 직접 입력해 주세요",
+        )
 
         fun parse(body: String): AiReply? = runCatching {
             val json = JSONObject(body)

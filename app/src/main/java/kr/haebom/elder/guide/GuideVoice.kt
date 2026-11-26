@@ -20,8 +20,13 @@ internal class GuideVoice(context: Context) {
 
     init {
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) = finished(utteranceId)
+            override fun onStart(utteranceId: String?) {
+                android.util.Log.d("HaebomGuide", "TTS 시작 $utteranceId")
+            }
+            override fun onDone(utteranceId: String?) {
+                android.util.Log.d("HaebomGuide", "TTS 끝 $utteranceId")
+                finished(utteranceId)
+            }
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) = finished(utteranceId)
         })
@@ -36,15 +41,25 @@ internal class GuideVoice(context: Context) {
         }
     }
 
+    /**
+     * 오프라인 한국어 음성을 먼저 고르고, 없으면 기기 기본 엔진의 한국어로 읽음.
+     * (예전에는 오프라인 음성이 없으면 아예 읽지 않아서, 질문을 읽은 뒤 듣기로 넘어가지 못했음)
+     */
     private fun enableOfflineKorean() {
-        val voice = engine.voices?.firstOrNull {
-            it.locale.language == Locale.KOREAN.language && !it.isNetworkConnectionRequired &&
-                TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features.orEmpty()
-        } ?: return
-
-        ready = engine.setVoice(voice) == TextToSpeech.SUCCESS
+        val offline = runCatching {
+            engine.voices?.firstOrNull {
+                it.locale.language == Locale.KOREAN.language && !it.isNetworkConnectionRequired &&
+                    TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features.orEmpty()
+            }
+        }.getOrNull()
+        ready = if (offline != null) {
+            engine.setVoice(offline) == TextToSpeech.SUCCESS
+        } else {
+            engine.setLanguage(Locale.KOREAN) >= TextToSpeech.LANG_AVAILABLE
+        }
+        android.util.Log.i("HaebomGuide", "TTS 준비: ready=$ready offline=${offline != null}")
         engine.setSpeechRate(0.85f)
-        if (ready) pending?.let { (text, done) -> speak(text, done) }
+        if (ready) main.post { pending?.let { (text, done) -> speak(text, done) } }
     }
 
     /** [message] 를 읽음. [done] 은 다 읽은 뒤 메인 스레드에서 한 번 부름 (읽을 수 없으면 잠시 뒤) */
@@ -64,7 +79,9 @@ internal class GuideVoice(context: Context) {
         }
         pending = null
         val id = "haebom-guide-${++serial}"
-        onDone = done?.let { id to it }
+        android.util.Log.d("HaebomGuide", "TTS 읽기 $id (끝나면 할 일: ${done != null})")
+        // 끝나면 할 일이 있는 문장(예: AI 질문 → 듣기)을 다른 문장이 끊으면, 그 문장이 끝난 뒤에 이어서 함
+        onDone = done?.let { id to it } ?: onDone?.let { id to it.second }
         engine.speak(message, TextToSpeech.QUEUE_FLUSH, null, id)
     }
 

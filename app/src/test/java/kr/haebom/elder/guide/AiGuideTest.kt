@@ -34,8 +34,13 @@ class AiGuideTest {
     fun serverFallbackSentencesKeepTheLocalGuide() {
         assertTrue(AiReply(1, "say", "서버가 잠시 바빠요. 조금 뒤에 다시 말씀해 주세요.").isFallback)
         assertTrue(AiReply(1, "say", "제가 화면을 잘 못 알아봤어요. 다시 말씀해 주시겠어요?").isFallback)
-        assertFalse(AiReply(1, "say", "이 화면은 직접 입력해 주세요. 제가 대신 보지 않을게요.").isFallback)
+        // 서버가 안내 문구의 '주민등록번호' 같은 글자만 보고도 보내는 문장: 앱 안내로 계속
+        assertTrue(AiReply(1, "say", "이 화면은 직접 입력해 주세요. 제가 대신 보지 않을게요.").isFallback)
         assertFalse(AiReply(1, "done", "서버가 잠시 바빠요").isFallback)
+        // 막연한 되묻기와 화면 내용에 대한 질문 구분
+        assertTrue(AiReply(1, "ask", "정부24에서 어떤 일을 하고 싶으세요?").isGenericAsk)
+        assertTrue(AiReply(1, "ask", "무엇을 도와드릴까요?").isGenericAsk)
+        assertFalse(AiReply(1, "ask", "화면의 '주민등록상 주소'에 적힌 곳이 지금 사시는 주소와 같나요?").isGenericAsk)
     }
 
     @Test

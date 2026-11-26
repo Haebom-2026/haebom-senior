@@ -33,10 +33,11 @@ class ScreenPayloadTest {
         assertTrue(json.contains("\"t\":\"${"가".repeat(100)}\""))
         assertFalse(json.contains("가".repeat(101)))
 
-        val typed = requireNotNull(ScreenPayload.screen(device, at, "pkg", 1, 1,
-            listOf(ScreenNode(text = "010-1234-5678", className = "EditText", editable = true))))
-        assertFalse(typed.contains("010-1234-5678"))
-        assertTrue(typed.contains("\"editable\":true"))
+        // 비어 있는 칸(글자가 힌트뿐)은 값으로 보내지 않음
+        val empty = requireNotNull(ScreenPayload.screen(device, at, "pkg", 1, 1,
+            listOf(ScreenNode(text = "이름 입력", className = "EditText", editable = true, hint = "이름 입력"))))
+        assertFalse(empty.contains("\"t\":"))
+        assertTrue(empty.contains("\"editable\":true"))
     }
 
     @Test
@@ -53,6 +54,20 @@ class ScreenPayloadTest {
     }
 
     @Test
+    fun inputFieldsSendTheTypedValueOrTheirHint() {
+        val json = requireNotNull(ScreenPayload.screenObject("kr.go.minwon.m", 1080, 2400, listOf(
+            ScreenNode(text = "서울시 중구 세종대로 110", className = "EditText", editable = true, filled = true, hint = "주소"),
+            ScreenNode(text = "연락처 입력", className = "EditText", editable = true, filled = false, hint = "연락처 입력"),
+        )))
+        // 채워진 칸은 값을 보내 AI 가 입력을 마쳤는지 알 수 있게
+        assertTrue(json.contains("\"t\":\"서울시 중구 세종대로 110\""))
+        assertTrue(json.contains("\"d\":\"주소\""))
+        // 빈 칸은 힌트만
+        assertTrue(json.contains("\"d\":\"연락처 입력\""))
+        assertFalse(json.contains("\"t\":\"연락처 입력\""))
+    }
+
+    @Test
     fun guideBodyCarriesHistoryAndDevice() {
         val screen = requireNotNull(ScreenPayload.screenObject("com.google.android.youtube", 1080, 2640, emptyList()))
         val history = List(12) { "안내 $it" }
@@ -65,6 +80,16 @@ class ScreenPayloadTest {
         assertEquals("안내 2", json.getJSONArray("history").getString(0))
         assertEquals(device, json.getString("deviceId"))
         assertFalse(org.json.JSONObject(ScreenPayload.guide(1, "UNKNOWN", "", emptyMap(), screen, deviceId = "x")).has("deviceId"))
+    }
+
+    @Test
+    fun fillingAnInputFieldChangesTheFingerprint() {
+        val before = listOf(ScreenNode(className = "EditText", editable = true, hint = "이름"))
+        val after = listOf(ScreenNode(text = "김순자", className = "EditText", editable = true, hint = "이름", filled = true))
+        val retyped = listOf(ScreenNode(text = "김순희", className = "EditText", editable = true, hint = "이름", filled = true))
+        assertFalse(ScreenPayload.fingerprint("gov", before) == ScreenPayload.fingerprint("gov", after))
+        // 한 글자씩 고쳐도 매번 다시 묻지는 않음 (채워졌는지만 봄)
+        assertEquals(ScreenPayload.fingerprint("gov", after), ScreenPayload.fingerprint("gov", retyped))
     }
 
     @Test

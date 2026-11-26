@@ -233,6 +233,7 @@ internal enum class GuideTask(val appPackage: String?) {
 
         const val GOAL_UNKNOWN = "UNKNOWN"
         const val GOAL_OPEN_APP = "OPEN_APP"
+        const val GOAL_BANK = "BANK"
 
         private val OPEN_APP = Regex("""^\s*(.+?)\s*(앱|어플)?\s*(을|를)?\s*(좀\s*)?(열어|켜|실행|들어가)""")
 

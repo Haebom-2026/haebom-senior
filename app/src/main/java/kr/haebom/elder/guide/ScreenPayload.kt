@@ -15,12 +15,22 @@ internal data class ScreenNode(
     val scrollable: Boolean = false,
     val checked: Boolean = false,
     val selected: Boolean = false,
+    /** 입력 칸: 칸 이름(힌트, 예: "이름 입력"). 어르신이 쓴 글자가 아님 */
+    val hint: String? = null,
+    /** 입력 칸에 이미 글자가 있음 */
+    val filled: Boolean = false,
+    /** 누를 수 있는 상태인지 (회색 '다음' 단추는 false) */
+    val enabled: Boolean = true,
+    /** 지금 커서가 있는 칸 */
+    val focused: Boolean = false,
 )
 
 internal object ScreenPayload {
     const val MAX_NODES = 60
     const val MAX_TEXT = 100
     const val MAX_HISTORY = 10
+    /** 채워졌는데 글자를 읽을 수 없는 입력 칸에 보내는 말 */
+    const val FILLED = "(입력되어 있음)"
     private val MOVING_CLASSES = setOf("SeekBar", "ProgressBar")
     private const val MAX_PACKAGE = 200
 
@@ -74,7 +84,8 @@ internal object ScreenPayload {
         val parts = nodes.take(MAX_NODES)
             .filter { (it.clickable || it.editable) && it.className !in MOVING_CLASSES }
             .map { node ->
-                val label = if (node.editable) "" else node.text.orEmpty()
+                // 입력 칸은 글자 대신 채워졌는지만 봄: 비었다가 채워지면 다른 화면 → AI 에 다시 물음
+                val label = if (node.editable) (if (node.filled) "filled" else "empty") else node.text.orEmpty()
                 "${node.className}|$label|${node.description.orEmpty()}".filterNot(Char::isDigit)
             }
         return packageName + "#" + parts.joinToString("").hashCode().toUInt().toString(16)
@@ -92,8 +103,16 @@ internal object ScreenPayload {
     private fun node(index: Int, node: ScreenNode): String {
         val fields = mutableListOf("\"i\":$index")
         // 입력 칸에 적힌 글자는 보내지 않습니다 (어르신이 입력한 내용)
-        if (!node.editable) node.text.clip()?.let { fields += "\"t\":${quote(it)}" }
-        node.description.clip()?.let { fields += "\"d\":${quote(it)}" }
+        if (node.editable) {
+            // 입력 칸: 채워져 있으면 그 값을 보냄 (AI 가 입력을 마쳤는지·맞는지 보고 다음 단계로 넘어가게).
+            // 비어 있으면 칸 이름(힌트)만. 비밀번호 칸과 민감한 이름표가 붙은 칸은 화면째 보내지 않음
+            // (ScreenCapture·SensitiveText). 전화·계좌·카드·주민번호 숫자는 서버가 *** 로 가림
+            if (node.filled) (node.text.clip() ?: FILLED).let { fields += "\"t\":${quote(it)}" }
+            (node.description.clip() ?: node.hint.clip())?.let { fields += "\"d\":${quote(it)}" }
+        } else {
+            node.text.clip()?.let { fields += "\"t\":${quote(it)}" }
+            node.description.clip()?.let { fields += "\"d\":${quote(it)}" }
+        }
         node.className.clip()?.let { fields += "\"c\":${quote(it)}" }
         node.bounds?.takeIf { it.size == 4 }?.let { fields += "\"b\":[${it.joinToString(",")}]" }
         if (node.clickable) fields += "\"clickable\":true"
@@ -101,6 +120,9 @@ internal object ScreenPayload {
         if (node.scrollable) fields += "\"scrollable\":true"
         if (node.checked) fields += "\"checked\":true"
         if (node.selected) fields += "\"selected\":true"
+        // 서버 프롬프트는 아직 이 둘을 읽지 않음 (요약은 slots.state 로 보냄). 디버그 뷰어·이후 서버 확장용
+        if (!node.enabled) fields += "\"enabled\":false"
+        if (node.focused) fields += "\"focused\":true"
         return fields.joinToString(",", "{", "}")
     }
 
