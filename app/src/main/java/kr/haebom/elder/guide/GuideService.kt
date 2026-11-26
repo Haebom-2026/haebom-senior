@@ -21,6 +21,11 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import kr.haebom.elder.GuideInputActivity
 import kr.haebom.elder.R
+import kr.haebom.elder.family.ApprovalStart
+import kr.haebom.elder.family.ApprovalState
+import kr.haebom.elder.family.ApprovalStatus
+import kr.haebom.elder.family.ApprovalWait
+import kr.haebom.elder.family.Approvals
 import kr.haebom.elder.family.Assessment
 import kr.haebom.elder.family.ElderSettings
 import kr.haebom.elder.family.Family
@@ -87,6 +92,8 @@ class GuideService : AccessibilityService() {
     /** AI 상태가 어느 안내의 것인지 (멈춤·이어서는 같은 안내라 답을 그대로 씀) */
     private var aiSerial = -1L
     private val sessionChanged: () -> Unit = {
+        // 승인을 기다리던 중 새 안내가 시작됨: 기다리기를 그만둠 (#10)
+        if (approvalWait != null && GuideSession.serial != approvalSerial) cancelApproval(announce = false)
         if (GuideSession.active == null || GuideSession.serial != aiSerial) {
             resetAi()
             aiSerial = GuideSession.serial
@@ -99,6 +106,7 @@ class GuideService : AccessibilityService() {
     }
     private val captionChanged: (GuideCaption.Message?) -> Unit = { renderCaption() }
     /** 들은 말을 지금 앞 화면 기준으로 처리 (시험 진입점이 잠깐 앞에 왔다 사라지므로 조금 뒤에) */
+    private val approvalListener: (ApprovalState) -> Unit = { onApprovalResult(it) }
     private val spokenHook: (String) -> Unit = { text ->
         handler.postDelayed({ handleSpoken(text, activeScreenPackage()) }, 700)
     }
@@ -108,6 +116,7 @@ class GuideService : AccessibilityService() {
         GuideSession.onChange = sessionChanged
         GuideCaption.listener = captionChanged
         SpokenCommandHook.handler = spokenHook
+        Approvals.listener = approvalListener
         DevScreenHook.sink?.onConnected(this)
         scheduleRefresh()
     }
@@ -274,6 +283,8 @@ class GuideService : AccessibilityService() {
     )
 
     private fun decide(foreground: String?): Decision {
+        // 가족의 대답을 기다리는 중: 안내만 멈추고 기다린다는 말만
+        if (approvalWait != null) return Decision(null, approvalWaitingSay to GuideCaption.Tone.INFO)
         val active = GuideSession.active
         if (foreground == packageName) {
             // 해봄 화면: 연습 화면의 단추만 표시
@@ -329,6 +340,10 @@ class GuideService : AccessibilityService() {
             // 민감 정보는 직접 (안내는 끝내지 않음). AI 가 먼저, 안 되면 앱 안에서 로그인·인증 순서를 짚어 드림
             noTargetSince = 0L
             sensitivePaused = true
+            // 정부24 본인인증: 가족에게 먼저 물을지 어르신께 (안내당 한 번)
+            if (SensitiveApps.category(foreground) == SensitiveApps.CATEGORY_PUBLIC) {
+                askApprovalOnAuth(foreground)?.let { return it }
+            }
             if (ai != null && captured != null && secretRefusedSerial != GuideSession.serial) {
                 aiDecision(active, captured, windowId, foreground)?.let { return it }
             }
@@ -1204,6 +1219,8 @@ class GuideService : AccessibilityService() {
             }
         }
         val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
+        // 가족의 대답을 기다리는 중 새로 말함: 기다리기를 그만두고 그 일을 (#10)
+        if (approvalWait != null && route != CommandRoute.Empty) cancelApproval(announce = false)
         // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
         if (GuideSession.active != null && aiAsked && (route == CommandRoute.Ai || route == CommandRoute.Unrecognized)) {
             // 답 단추가 있으면 말한 것과 맞는 단추로 ("네" → "네", "몰라" → "모르겠어요")
@@ -1265,6 +1282,7 @@ class GuideService : AccessibilityService() {
 
     /** 안내·떠 있는 카드·묻던 것·듣기를 모두 멈춤 ('그만' 단추, 말로 "그만") */
     private fun stopEverything() {
+        cancelApproval(announce = false)
         pendingPick = null
         pendingConfirm = null
         pendingChoices = null
@@ -1273,6 +1291,202 @@ class GuideService : AccessibilityService() {
         stopListening(announce = false)
         GuideSession.stop()
         GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
+    }
+
+    // ───────────────────────── 보호자 승인 (S3 #9·#10·#19) ─────────────────────────
+    // 거래 승인이 아니라 "해봄이 계속 도와 드려도 될까요?" 를 가족에게 묻는 것. 묻는 것도 어르신이 정함
+
+    private var approvalWait: ApprovalWait? = null
+    /** 승인을 기다리기 시작한 안내 (새 안내가 시작되면 기다리기를 그만둠) */
+    private var approvalSerial = -1L
+    private var approvalOnApproved: (() -> Unit)? = null
+    private var approvalWaitingSay = ""
+    /** 요청을 보낸 뒤 대답 전에 그만두면 늘어남 (늦게 온 #9 결과는 바로 취소) */
+    private var approvalToken = 0
+    /** 이번 안내에서 본인인증 화면 승인을 이미 물었음 */
+    private var approvalAskedSerial = -1L
+    private val approvalPoll = Runnable { pollApproval() }
+
+    /** 물어볼 가족이 있는지 (서버 연결 + 연결된 가족) */
+    private fun canAskFamily(): Boolean = Family.gateway?.links()?.isNotEmpty() == true
+
+    /**
+     * 정부24 본인인증 화면: 이번 안내에서 한 번 "가족에게 먼저 물어볼까요?" (고르는 것은 어르신).
+     * 카드가 떠 있는 동안은 기다림, 물을 것이 없으면 null
+     */
+    private fun askApprovalOnAuth(foreground: String): Decision? {
+        if (card.currentKey?.startsWith(APPROVAL_ASK_KEY) == true) return Decision(null, null)
+        if (approvalAskedSerial == GuideSession.serial || !canAskFamily()) return null
+        approvalAskedSerial = GuideSession.serial
+        android.util.Log.d(TAG, "본인인증 화면: 가족에게 물을지 물어봄")
+        val yes = getString(R.string.approval_ask_yes)
+        showPick(
+            key = APPROVAL_ASK_KEY + GuideSession.serial,
+            question = getString(R.string.approval_ask_auth),
+            options = listOf(yes, getString(R.string.approval_ask_no)),
+            extra = emptyList(),
+        ) { picked ->
+            if (picked == yes) {
+                requestApproval(appLabel(foreground), foreground, Approvals.ACTION_GOV24_AUTH, Sensitivity.PUBLIC) { resumeGuide() }
+            } else {
+                GuideCaption.post(getString(R.string.approval_ask_skipped), GuideCaption.Tone.INFO)
+                resumeGuide()
+            }
+        }
+        return Decision(null, null)
+    }
+
+    /** 지금 화면으로 다시 판단해 안내를 이어 감 */
+    private fun resumeGuide() {
+        aiAnswer = null
+        scheduleRefresh()
+    }
+
+    /** #9 를 보내고 결과에 따라 기다리기 / 가족이 없거나 못 보냈으면 어떻게 할지 물음 */
+    private fun requestApproval(appName: String, pkg: String, action: String, category: String, onApproved: () -> Unit) {
+        val gateway = Family.gateway
+        if (gateway == null) {
+            GuideCaption.post(getString(R.string.consent_unavailable), GuideCaption.Tone.WARN)
+            return
+        }
+        cancelApproval(announce = false)
+        val token = ++approvalToken
+        GuideCaption.post(getString(R.string.approval_sending), GuideCaption.Tone.INFO)
+        gateway.requestApproval(appName, pkg, action, category) { start ->
+            if (token != approvalToken) {
+                // 대답 전에 그만둠: 만들어진 요청은 바로 취소
+                (start as? ApprovalStart.Waiting)?.let { gateway.cancelApproval(it.id) }
+            } else {
+                when (start) {
+                    is ApprovalStart.Waiting -> startWaiting(start, onApproved)
+                    ApprovalStart.NoGuardians -> askAfterApprovalFailed(getString(R.string.approval_no_guardians), onApproved, sos = false)
+                    ApprovalStart.Failed -> askAfterApprovalFailed(getString(R.string.approval_failed), onApproved, sos = true)
+                }
+            }
+        }
+    }
+
+    /** 가족에게 묻지 못함: 혼자 이어 할지, 그만할지 (보내지 못했으면 문자 도움 요청도) 어르신이 고름 */
+    private fun askAfterApprovalFailed(question: String, onApproved: () -> Unit, sos: Boolean) {
+        val alone = getString(R.string.approval_go_alone)
+        val help = getString(R.string.approval_sos)
+        showPick(
+            key = APPROVAL_FAILED_KEY,
+            question = question,
+            options = if (sos) listOf(alone, help) else listOf(alone),
+            extra = listOf(getString(R.string.approval_quit)),
+        ) { picked ->
+            when (picked) {
+                alone -> onApproved()
+                help -> openSos(activeScreenPackage())
+                else -> {
+                    GuideSession.stop()
+                    GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
+                }
+            }
+        }
+    }
+
+    private fun startWaiting(start: ApprovalStart.Waiting, onApproved: () -> Unit) {
+        val wait = ApprovalWait(start.id, start.expiresAt)
+        approvalWait = wait
+        approvalSerial = GuideSession.serial
+        approvalOnApproved = onApproved
+        val who = Family.gateway?.links().orEmpty().map { "${it.labelForElder} 님" }.distinct().joinToString(", ")
+            .ifBlank { getString(R.string.approval_family) }
+        approvalWaitingSay = getString(R.string.approval_waiting, who)
+        android.util.Log.d(TAG, "승인 기다림 (${if (start.existing) "이미 대기 중인 요청" else "새 요청"})")
+        card.show(
+            key = APPROVAL_WAIT_KEY,
+            title = getString(R.string.approval_wait_title),
+            message = approvalWaitingSay,
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.approval_wait_stop), ElderUi.Kind.QUIET) { cancelApproval(announce = true) },
+            ),
+        )
+        GuideCaption.post(approvalWaitingSay, GuideCaption.Tone.INFO)
+        handler.removeCallbacks(approvalPoll)
+        handler.postDelayed(approvalPoll, Approvals.POLL_MS)
+        scheduleRefresh()
+    }
+
+    /** 대기 중 3초마다 #19 (FCM 이 빠질 때 대비). expiresAt + 5초가 지나면 서버와 관계없이 만료 */
+    private fun pollApproval() {
+        val wait = approvalWait ?: return
+        wait.expireIfLate(System.currentTimeMillis())?.let {
+            finishApproval(it)
+            return
+        }
+        Family.gateway?.approvalStatus(wait.id) { state ->
+            if (approvalWait === wait && state != null) wait.accept(state)?.let(::finishApproval)
+        }
+        handler.postDelayed(approvalPoll, Approvals.POLL_MS)
+    }
+
+    /** 결과 FCM ([Approvals.onPush]) */
+    private fun onApprovalResult(state: ApprovalState) {
+        val wait = approvalWait ?: return
+        wait.accept(state)?.let(::finishApproval)
+    }
+
+    private fun finishApproval(state: ApprovalState) {
+        handler.removeCallbacks(approvalPoll)
+        approvalWait = null
+        val onApproved = approvalOnApproved
+        approvalOnApproved = null
+        if (card.currentKey == APPROVAL_WAIT_KEY) card.hide()
+        android.util.Log.d(TAG, "승인 결과: ${state.status}")
+        val who = state.respondedByLabel?.let { "$it 님" } ?: getString(R.string.approval_family)
+        when (state.status) {
+            ApprovalStatus.APPROVED -> {
+                GuideCaption.post(getString(R.string.approval_approved, who), GuideCaption.Tone.DONE)
+                val serial = GuideSession.serial
+                handler.postDelayed({
+                    // 그 사이 다른 일을 시작했으면 이어 가지 않음
+                    if (GuideSession.serial == serial) onApproved?.invoke()
+                    resumeGuide()
+                }, Approvals.RESUME_DELAY_MS)
+            }
+            ApprovalStatus.REJECTED -> {
+                GuideSession.stop()
+                GuideCaption.post(getString(R.string.approval_rejected, who), GuideCaption.Tone.WARN)
+            }
+            ApprovalStatus.EXPIRED -> {
+                GuideSession.stop()
+                val help = getString(R.string.approval_sos)
+                showPick(
+                    key = APPROVAL_FAILED_KEY,
+                    question = getString(R.string.approval_expired),
+                    options = listOf(help),
+                    extra = listOf(getString(R.string.approval_expired_no)),
+                ) { picked -> if (picked == help) openSos(activeScreenPackage()) }
+            }
+            ApprovalStatus.CANCELLED -> {
+                GuideSession.stop()
+                GuideCaption.post(getString(R.string.approval_cancelled), GuideCaption.Tone.INFO)
+            }
+            ApprovalStatus.PENDING -> Unit
+        }
+    }
+
+    /**
+     * 승인 기다리기를 그만둠 (#10). [announce] 면 어르신이 [기다리지 않기]를 누른 것: 안내도 마침.
+     * 새 명령·그만·SOS·새 안내 때는 조용히 (그 일이 따로 말함)
+     */
+    private fun cancelApproval(announce: Boolean) {
+        approvalToken++
+        val wait = approvalWait ?: return
+        approvalWait = null
+        approvalOnApproved = null
+        wait.cancel()
+        handler.removeCallbacks(approvalPoll)
+        if (card.currentKey == APPROVAL_WAIT_KEY) card.hide()
+        Family.gateway?.cancelApproval(wait.id)
+        android.util.Log.d(TAG, "승인 기다리기 그만 (${if (announce) "어르신" else "다른 일"})")
+        if (announce) {
+            GuideSession.stop()
+            GuideCaption.post(getString(R.string.approval_cancelled), GuideCaption.Tone.INFO)
+        }
     }
 
     // ───────────────────────── 들어오니 이미 채워진 칸 ─────────────────────────
@@ -1708,24 +1922,31 @@ class GuideService : AccessibilityService() {
             SensitiveAlerter.send(this, assessment, target?.let(::appLabel).orEmpty(), target.orEmpty())
         }
         GuideCaption.post(getString(R.string.alert_finance_command), GuideCaption.Tone.WARN, durationMs = 10_000)
+        val appName = target?.let(::appLabel)
+        // 계속하기: 은행 앱을 열고 화면 안내도 시작 (비밀번호·인증은 직접, 끝나면 이어서)
+        val proceed: () -> Unit = {
+            GuideSession.startAi(spoken, GuideTask.GOAL_BANK, appName?.let { mapOf("app" to it) }.orEmpty())
+            val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
+            when {
+                launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
+            }
+            GuideCaption.post(getString(R.string.caption_finance_guide), GuideCaption.Tone.INFO)
+        }
         card.show(
             key = "finance",
             title = getString(R.string.alert_finance_title),
             message = getString(R.string.alert_finance_command),
-            actions = listOf(
-                OverlayCard.Action(getString(R.string.alert_continue)) {
-                    // 계속하기: 은행 앱을 열고 화면 안내도 시작 (비밀번호·인증은 직접, 끝나면 이어서)
-                    val appName = target?.let(::appLabel)
-                    GuideSession.startAi(spoken, GuideTask.GOAL_BANK, appName?.let { mapOf("app" to it) }.orEmpty())
-                    val launch = bankPackage?.let { packageManager.getLaunchIntentForPackage(it) }
-                    when {
-                        launch != null -> startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        target == null -> GuideCaption.post(getString(R.string.alert_open_bank), GuideCaption.Tone.INFO)
-                    }
-                    GuideCaption.post(getString(R.string.caption_finance_guide), GuideCaption.Tone.INFO)
-                },
-                OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {},
-            ),
+            actions = buildList {
+                add(OverlayCard.Action(getString(R.string.alert_continue)) { proceed() })
+                // 가족에게 먼저 물어보고 하기 (S3 #9): 허락하면 같은 [계속하기]
+                if (canAskFamily()) {
+                    add(OverlayCard.Action(getString(R.string.approval_finance_ask), ElderUi.Kind.SECONDARY) {
+                        requestApproval(appName.orEmpty(), target.orEmpty(), Approvals.ACTION_BANK_OPEN, Sensitivity.FINANCE, proceed)
+                    })
+                }
+                add(OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {})
+            },
             accent = ElderUi.RED,
         )
     }
@@ -1735,6 +1956,7 @@ class GuideService : AccessibilityService() {
      * 여러 명이라 고르거나 번호를 넣어야 하면 그때만 말하기 창의 SOS 화면을 엶.
      */
     private fun openSos(foreground: String?, scam: Boolean = false) {
+        cancelApproval(announce = false)
         GuideSession.stop()
         val contacts = settings.sosContacts(Family.gateway?.links().orEmpty())
         val single = contacts.singleOrNull()
@@ -1802,6 +2024,8 @@ class GuideService : AccessibilityService() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun disconnect() {
+        cancelApproval(announce = false)
+        if (Approvals.listener === approvalListener) Approvals.listener = null
         card.hide()
         stopListening(announce = false)
         if (connected) DevScreenHook.sink?.onDisconnected()
@@ -1843,6 +2067,9 @@ class GuideService : AccessibilityService() {
          */
         const val SAFETY_SLOT = "rule"
         private const val PREFILLED_KEY = "pick:prefilled:"
+        private const val APPROVAL_ASK_KEY = "pick:approval:"
+        private const val APPROVAL_FAILED_KEY = "pick:approval-failed"
+        private const val APPROVAL_WAIT_KEY = "approval:wait"
 
         /** 어르신이 고른 로그인 방법 (slots 로 AI 에도 감) */
         const val LOGIN_SLOT = "login_method"

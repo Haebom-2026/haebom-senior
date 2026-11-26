@@ -25,8 +25,8 @@ internal class OverlayCard(private val context: Context) {
     data class Action(val label: String, val kind: ElderUi.Kind = ElderUi.Kind.PRIMARY, val run: () -> Unit)
 
     private companion object {
-        /** 어르신 답을 기다리는 카드: AI 질문 카드가 덮지 않음 (동의·로그인 방법·앱 고르기) */
-        val PROTECTED = listOf("consent:", "login:", "pick:")
+        /** 어르신 답을 기다리는 카드: AI 질문 카드가 덮지 않음 (동의·로그인 방법·앱 고르기·가족 승인 기다리기) */
+        val PROTECTED = listOf("consent:", "login:", "pick:", "approval:")
     }
 
     private val manager = context.getSystemService(WindowManager::class.java)

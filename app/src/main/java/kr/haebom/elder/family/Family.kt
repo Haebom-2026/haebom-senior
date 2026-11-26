@@ -38,23 +38,6 @@ internal data class FamilyLink(
 /** 6자리 일회용 코드 (연결 코드, 해제 확인 코드 모두 같은 모양) */
 internal data class ConnectionCode(val code: String, val expiresAt: Long)
 
-internal enum class ApprovalStatus { PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED }
-
-internal data class GuardianApproval(
-    val id: String,
-    val elderId: String,
-    val guardianIds: Set<String>,
-    val appName: String,
-    val packageName: String,
-    val action: String,
-    val category: String,
-    val status: ApprovalStatus,
-    val createdAt: Long,
-    val expiresAt: Long,
-    val respondedAt: Long? = null,
-    val respondedBy: String? = null,
-)
-
 /** 민감 앱 이용 알림 (서버 #6 sensitive-entries, type = sensitive_entry) */
 internal data class SensitiveNotice(
     val id: String,
@@ -132,6 +115,18 @@ internal interface FamilyGateway {
 
     /** 막힘 (#7): 같은 안내에서 45초 진행이 없어 어르신이 "알려 주세요" 를 고름 (안내당 1번) */
     fun reportStuck(appName: String, packageName: String, done: (NoticeOutcome) -> Unit)
+
+    /**
+     * 보호자 승인 요청 (#9, S3): "해봄이 계속 도와 드려도 될까요?" 를 연결된 가족에게 물음.
+     * [action] 은 [Approvals.ACTION_GOV24_AUTH] 같은 `guide_` 값. 결과는 [ApprovalStart]
+     */
+    fun requestApproval(appName: String, packageName: String, action: String, category: String, done: (ApprovalStart) -> Unit)
+
+    /** 승인 결과 조회 (#19). 못 받으면 null (다음 차례에 다시) */
+    fun approvalStatus(id: String, done: (ApprovalState?) -> Unit)
+
+    /** 승인 기다리기 취소 (#10). 이미 끝난 요청(409·404)은 무시 */
+    fun cancelApproval(id: String)
 }
 
 internal object Family {

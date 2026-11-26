@@ -24,6 +24,9 @@ import java.util.concurrent.TimeUnit
  *   #6  POST   /v1/elder/sensitive-entries   민감 앱 알림 (S2). 201 의 guardians 로 "{보호자}에게 알렸어요"
  *   #7  POST   /v1/elder/stuck               막힘 (S2)
  *   #8  POST   /v1/elder/sos                 SOS (S2, category scam 이면 L3)
+ *   #9  POST   /v1/elder/approvals           보호자 승인 요청 (S3)
+ *   #10 POST   /v1/elder/approvals/{id}/cancel  승인 기다리기 취소 (S3)
+ *   #19 GET    /v1/elder/approvals/{id}      승인 결과 (S3, 대기 중 3초마다. 결과 FCM 이 먼저 오면 그것으로)
  * 연결이 바뀌면 서버가 FCM data { kind: "link" } 를 보내고, [HaebomMessagingService] 가 [refresh] 를 부릅니다.
  */
 internal class ServerFamilyGateway(
@@ -182,6 +185,43 @@ internal class ServerFamilyGateway(
             val outcome = noticeOutcome(reply)
             Log.d(TAG, "막힘 #7 → ${reply.code} ${reply.reason ?: ""} ${outcome.result}")
             main.post { done(outcome) }
+        }
+    }
+
+    override fun requestApproval(
+        appName: String,
+        packageName: String,
+        action: String,
+        category: String,
+        done: (ApprovalStart) -> Unit,
+    ) {
+        io.execute {
+            val body = JSONObject()
+                .put("packageName", packageName.ifBlank { ownPackage }.take(200))
+                .put("appName", appName.ifBlank { "해봄" }.take(100))
+                .put("action", action).put("category", category)
+                .toString()
+            val reply = api.call("POST", "/v1/elder/approvals", body, UUID.randomUUID().toString())
+            val start = Approvals.parseStart(reply.ok, reply.json())
+            Log.d(TAG, "승인 요청 #9 ($action) → ${reply.code} ${reply.reason ?: ""} ${start.javaClass.simpleName}")
+            main.post { done(start) }
+        }
+    }
+
+    override fun approvalStatus(id: String, done: (ApprovalState?) -> Unit) {
+        io.execute {
+            val reply = api.call("GET", "/v1/elder/approvals/$id")
+            val state = Approvals.parseState(reply.json()?.takeIf { reply.ok })
+            if (state == null) Log.w(TAG, "승인 조회 #19 → ${reply.code} ${reply.reason ?: ""}")
+            main.post { done(state) }
+        }
+    }
+
+    override fun cancelApproval(id: String) {
+        io.execute {
+            val reply = api.call("POST", "/v1/elder/approvals/$id/cancel")
+            // 409(이미 대답·만료·취소)·404 는 무시
+            Log.d(TAG, "승인 취소 #10 → ${reply.code} ${reply.reason ?: ""}")
         }
     }
 
