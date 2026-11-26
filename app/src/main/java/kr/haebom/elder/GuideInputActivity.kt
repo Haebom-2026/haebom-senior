@@ -29,6 +29,7 @@ import kr.haebom.elder.family.SosContact
 import kr.haebom.elder.guide.GuideCaption
 import kr.haebom.elder.guide.GuideSession
 import kr.haebom.elder.guide.GuideTask
+import kr.haebom.elder.guide.SpokenCommandHook
 import kr.haebom.elder.net.HaebomServer
 import kr.haebom.elder.ui.ElderUi
 
@@ -196,6 +197,14 @@ class GuideInputActivity : Activity() {
             return
         }
         showHeard(spoken)
+        // 화면 안내(접근성)가 켜져 있으면 떠 있는 마이크와 똑같이 처리: 창을 닫고 지금 화면 위 카드로
+        // (앱 고르기·검색·지도·확인 카드·보호자 승인 모두 같은 규칙). 꺼져 있을 때만 아래 예전 처리
+        SpokenCommandHook.handler?.let { hook ->
+            handlingResult = true
+            hook(spoken)
+            finish()
+            return
+        }
         if (GuideTask.isStopCommand(spoken)) {
             GuideSession.stop()
             handlingResult = true
