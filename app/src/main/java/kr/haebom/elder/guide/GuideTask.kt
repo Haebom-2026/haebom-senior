@@ -219,7 +219,8 @@ internal enum class GuideTask(val appPackage: String?) {
             ).any { it in normalized }
             return when {
                 asksForScreenGuide -> currentTask
-                currentTask == YOUTUBE && "검색" in normalized -> currentTask
+                // 유튜브를 보던 중 "임영웅 찾아 줘" 는 분명히 유튜브 검색
+                currentTask == YOUTUBE && listOf("검색", "찾아", "틀어", "보여", "재생").any { it in normalized } -> currentTask
                 else -> null
             }
         }

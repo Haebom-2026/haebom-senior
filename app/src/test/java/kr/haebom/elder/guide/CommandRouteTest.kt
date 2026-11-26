@@ -29,4 +29,16 @@ class CommandRouteTest {
         // 사기 의심은 금융보다 먼저 (기관 사칭 + 돈)
         assertTrue(CommandRoute.of("검찰이 계좌로 돈 보내래", null, aiAvailable = true) is CommandRoute.Scam)
     }
+
+    @Test
+    fun ambiguousRequestsAreGuessedAndAsked() {
+        // 앱을 말하지 않음 → 유튜브 검색으로 짐작해서 물음
+        assertEquals(CommandRoute.Guess(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("임영웅 찾아줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Guess(GuideTask.YOUTUBE, "트로트 노래"), CommandRoute.of("트로트 노래 틀어 줘", null, aiAvailable = true))
+        // 분명한 말은 바로
+        assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅"), CommandRoute.of("유튜브에 임영웅 검색해줘", null, aiAvailable = true))
+        // 다른 곳을 말했으면 유튜브로 짐작하지 않음
+        assertEquals(CommandRoute.Ai, CommandRoute.of("설정에서 디스플레이 찾아줘", null, aiAvailable = true))
+        assertEquals(CommandRoute.Ai, CommandRoute.of("카카오톡 열어 줘", null, aiAvailable = true))
+    }
 }

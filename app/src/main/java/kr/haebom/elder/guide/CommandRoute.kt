@@ -31,7 +31,13 @@ internal sealed class CommandRoute {
     /** 앱이 아는 일을 지금 바로 시작 */
     data class Task(val task: GuideTask, val query: String?) : CommandRoute()
 
-    /** 화면 안내 AI 로 시작 */
+    /**
+     * 어디서 할지 말하지 않은 애매한 말: 뜻을 짐작해 "○○에서 △△ 할까요?" 예/아니요로 물음.
+     * 예: "임영웅 찾아줘" → 유튜브에서 '임영웅' 검색
+     */
+    data class Guess(val task: GuideTask, val query: String) : CommandRoute()
+
+    /** 화면 안내 AI 로 (앱 이름이면 바로 열고, 그 밖에는 안내할지 물음) */
     data object Ai : CommandRoute()
 
     /** 알아듣지 못함 (AI 도 없을 때) */
@@ -49,9 +55,22 @@ internal sealed class CommandRoute {
             return when {
                 task == GuideTask.GOV24 -> Gov24
                 task != null -> Task(task, if (task == GuideTask.YOUTUBE) GuideTask.youtubeQuery(spoken) else null)
-                aiAvailable -> Ai
-                else -> Unrecognized
+                else -> guessYoutube(spoken)?.let { Guess(GuideTask.YOUTUBE, it) }
+                    ?: if (aiAvailable) Ai else Unrecognized
             }
+        }
+
+        private val WATCH_VERBS = listOf("찾아", "검색", "틀어", "보여", "들려", "재생", "보고싶", "듣고싶")
+        private val OTHER_PLACE = listOf("에서", "앱", "어플", "설정", "열어", "켜")
+
+        /**
+         * 앱을 말하지 않고 "○○ 찾아 줘 / 틀어 줘 / 보여 줘" 라고 하면 유튜브 검색으로 짐작.
+         * "설정에서 디스플레이 찾아 줘" 처럼 다른 곳을 말했으면 짐작하지 않음.
+         */
+        fun guessYoutube(spoken: String): String? {
+            val normalized = GuideTask.normalize(spoken)
+            if (WATCH_VERBS.none { it in normalized } || OTHER_PLACE.any { it in normalized }) return null
+            return GuideTask.youtubeQuery(spoken)
         }
     }
 }

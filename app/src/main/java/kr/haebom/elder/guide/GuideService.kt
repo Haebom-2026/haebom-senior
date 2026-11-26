@@ -921,7 +921,8 @@ class GuideService : AccessibilityService() {
                     android.speech.SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> R.string.voice_device_unavailable
                     else -> R.string.caption_unrecognized
                 }
-                GuideCaption.post(getString(message), GuideCaption.Tone.WARN)
+                // 예/아니요를 묻는 중이면 카드는 그대로, 단추로 고르시게
+                GuideCaption.post(getString(if (pendingConfirm != null) R.string.confirm_not_heard else message), GuideCaption.Tone.WARN)
             }
         })
         if (started) {
@@ -943,6 +944,32 @@ class GuideService : AccessibilityService() {
      * 해봄 앱 화면으로 넘어가지 않고 떠 있는 카드([OverlayCard])로 물음.
      */
     private fun handleSpoken(spoken: String, foreground: String?) {
+        // "이렇게 할까요?" 물은 뒤의 짧은 대답: 예면 그 일을, 아니요면 취소. 그 밖의 말은 새 요청
+        pendingConfirm?.let { pending ->
+            if (spoken.isBlank()) {
+                // 대답을 못 들음: 카드는 그대로 두고 단추로 고르시게
+                GuideCaption.post(getString(R.string.confirm_not_heard), GuideCaption.Tone.INFO)
+                return
+            }
+            when (Confirm.answer(spoken)) {
+                Confirm.Answer.YES -> {
+                    pendingConfirm = null
+                    card.hide()
+                    pending()
+                    return
+                }
+                Confirm.Answer.NO -> {
+                    pendingConfirm = null
+                    card.hide()
+                    GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
+                    return
+                }
+                Confirm.Answer.OTHER -> {
+                    pendingConfirm = null
+                    card.hide()
+                }
+            }
+        }
         val route = CommandRoute.of(spoken, foreground, aiAvailable = HaebomServer.api != null)
         // AI 가 되물은 뒤의 말은 새 일이 아니라 그 대답: 같은 안내를 이어 감
         if (GuideSession.active != null && aiAsked && (route == CommandRoute.Ai || route == CommandRoute.Unrecognized)) {
@@ -969,27 +996,10 @@ class GuideService : AccessibilityService() {
                 )
             }
             is CommandRoute.Finance -> warnFinance(spoken, route.assessment, foreground)
-            CommandRoute.Gov24 -> card.show(
-                key = "gov24",
-                title = getString(R.string.alert_gov24_title),
-                message = getString(R.string.guide_gov24_limited),
-                actions = listOf(
-                    OverlayCard.Action(getString(R.string.guide_continue)) {
-                        GuideCaption.post(
-                            getString(R.string.caption_heard_task, spoken, getString(GuideTask.GOV24.nextStepText())),
-                            GuideCaption.Tone.INFO,
-                        )
-                        kr.haebom.elder.launchGuide(this, GuideTask.GOV24, foreground, announce = false, null, spoken)
-                    },
-                    OverlayCard.Action(getString(R.string.cancel), ElderUi.Kind.QUIET) {},
-                ),
-            )
-            CommandRoute.Ai -> {
-                GuideCaption.post(
-                    getString(R.string.caption_heard_task, spoken, getString(R.string.caption_ai_started)),
-                    GuideCaption.Tone.INFO,
-                )
-                kr.haebom.elder.startAiGuide(this, spoken, foreground)
+            // 분명한 말은 묻지 않고 바로
+            CommandRoute.Gov24 -> {
+                GuideCaption.post(getString(R.string.guide_gov24_limited), GuideCaption.Tone.INFO)
+                kr.haebom.elder.launchGuide(this, GuideTask.GOV24, foreground, announce = false, null, spoken)
             }
             is CommandRoute.Task -> {
                 GuideCaption.post(
@@ -998,8 +1008,76 @@ class GuideService : AccessibilityService() {
                 )
                 kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
             }
+            // 애매한 말은 짐작한 뜻을 예/아니요로 물음
+            is CommandRoute.Guess -> confirmThen(spoken, getString(R.string.confirm_youtube_query, route.query)) {
+                GuideCaption.post(getString(route.task.nextStepText()), GuideCaption.Tone.INFO)
+                kr.haebom.elder.launchGuide(this, route.task, foreground, announce = false, route.query, spoken)
+            }
+            CommandRoute.Ai -> confirmAi(spoken, foreground)
         }
     }
+
+    // ───────────────────────── "이렇게 할까요?" 확인 ─────────────────────────
+
+    /** 예를 기다리는 일 (말로 "네" 해도, 카드의 [예]를 눌러도 실행) */
+    private var pendingConfirm: (() -> Unit)? = null
+
+    /**
+     * 알아들은 뜻을 먼저 묻고 예일 때만 [action]. 질문을 읽어 준 뒤 마이크를 켜서 "네/아니요" 대답도 받음.
+     * [detail] 은 카드에 덧붙이는 설명.
+     */
+    private fun confirmThen(spoken: String, question: String, detail: String? = null, action: () -> Unit) {
+        pendingConfirm = action
+        card.show(
+            key = "confirm:$question",
+            title = getString(R.string.confirm_title, spoken),
+            message = question,
+            detail = detail,
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.confirm_yes)) {
+                    pendingConfirm = null
+                    stopListening(announce = false)
+                    action()
+                },
+                OverlayCard.Action(getString(R.string.confirm_no), ElderUi.Kind.QUIET) {
+                    pendingConfirm = null
+                    stopListening(announce = false)
+                    GuideCaption.post(getString(R.string.confirm_declined), GuideCaption.Tone.INFO)
+                },
+            ),
+        )
+        // 자막에는 띄우되 읽기는 여기서: 다 읽으면 바로 "네/아니요"를 들음
+        GuideCaption.post(question, GuideCaption.Tone.INFO, speak = false)
+        voice?.stop()
+        speak(question) {
+            if (pendingConfirm === action && !listener.isListening) startListening(fallbackToWindow = false)
+        }
+    }
+
+    /**
+     * 앱이 모르는 일. "○○ 열어 줘" 이고 폰에 그 앱이 있으면 분명한 말이라 묻지 않고 바로 엶
+     * (홈 화면에서 아이콘을 찾는 안내보다 빠름). 그 밖에는 애매하니 화면을 보며 안내할지 물음.
+     */
+    private fun confirmAi(spoken: String, foreground: String?) {
+        val app = GuideTask.appSlot(spoken)?.let { name -> Confirm.findApp(name, launcherApps()) }
+        val launch = app?.let { packageManager.getLaunchIntentForPackage(it.second) }
+        if (app != null && launch != null) {
+            GuideSession.stop()
+            GuideCaption.post(getString(R.string.caption_done_open_app, app.first), GuideCaption.Tone.DONE)
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        confirmThen(spoken, getString(R.string.confirm_ai_guide)) {
+            GuideCaption.post(getString(R.string.caption_ai_started), GuideCaption.Tone.INFO)
+            kr.haebom.elder.startAiGuide(this, spoken, foreground)
+        }
+    }
+
+    /** 폰에 깔린(홈 화면에 보이는) 앱들의 (이름, 패키지) */
+    private fun launcherApps(): List<Pair<String, String>> = runCatching {
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        packageManager.queryIntentActivities(home, 0).map { it.loadLabel(packageManager).toString() to it.activityInfo.packageName }
+    }.getOrDefault(emptyList())
 
     /** L3 사기 의심: 묻지 않고 바로 보호자 알림, 안내 멈춤, 지금 화면 위에 경고 카드 */
     private fun warnScam(assessment: Assessment, foreground: String?) {
