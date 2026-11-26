@@ -13,6 +13,9 @@ internal sealed class CommandRoute {
     /** 아무 말도 못 들음 */
     data object Empty : CommandRoute()
 
+    /** "그만", "멈춰": 하던 안내·카드·듣기를 모두 멈춤 (화면의 '그만' 단추와 같음) */
+    data object Stop : CommandRoute()
+
     /** L3 사기 의심: 바로 보호자 알림 + 안내 멈춤 + 경고 카드 */
     data class Scam(val assessment: Assessment) : CommandRoute()
 
@@ -58,6 +61,7 @@ internal sealed class CommandRoute {
     companion object {
         fun of(spoken: String, foreground: String?, aiAvailable: Boolean): CommandRoute {
             if (spoken.isBlank()) return Empty
+            if (GuideTask.isStopCommand(spoken)) return Stop
             val assessment = Sensitivity.fromCommand(spoken, foreground)
             if (assessment.level == Level.L3) return Scam(assessment)
             if (GuideTask.isHelpCommand(spoken)) return Help

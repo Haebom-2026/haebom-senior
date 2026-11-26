@@ -196,6 +196,13 @@ class GuideInputActivity : Activity() {
             return
         }
         showHeard(spoken)
+        if (GuideTask.isStopCommand(spoken)) {
+            GuideSession.stop()
+            handlingResult = true
+            GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
+            finish()
+            return
+        }
         val assessment = Sensitivity.fromCommand(spoken, foregroundPackage)
         // L3 사기 의심: 동의 없이 바로 보호자에게 알리고 안내를 멈춤
         if (assessment.level == Level.L3) {

@@ -78,10 +78,7 @@ class GuideService : AccessibilityService() {
             context = this,
             onMicrophone = { onMicrophone() },
             onSos = { openSos(activeScreenPackage()) },
-            onStop = {
-                GuideSession.stop()
-                GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
-            },
+            onStop = { stopEverything() },
         )
     }
     private var voice: GuideVoice? = null
@@ -1200,6 +1197,7 @@ class GuideService : AccessibilityService() {
         }
         when (route) {
             CommandRoute.Empty -> GuideCaption.post(getString(R.string.caption_no_speech), GuideCaption.Tone.WARN)
+            CommandRoute.Stop -> stopEverything()
             CommandRoute.Unrecognized -> {
                 GuideCaption.heard(spoken)
                 GuideCaption.post(getString(R.string.caption_unrecognized), GuideCaption.Tone.WARN)
@@ -1247,6 +1245,18 @@ class GuideService : AccessibilityService() {
             is CommandRoute.Guess -> askWhere(spoken, route.query, route.options, foreground)
             CommandRoute.Ai -> confirmAi(spoken, foreground)
         }
+    }
+
+    /** 안내·떠 있는 카드·묻던 것·듣기를 모두 멈춤 ('그만' 단추, 말로 "그만") */
+    private fun stopEverything() {
+        pendingPick = null
+        pendingConfirm = null
+        pendingChoices = null
+        askOptions = emptyList()
+        card.hide()
+        stopListening(announce = false)
+        GuideSession.stop()
+        GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
     }
 
     // ───────────────────────── 어르신이 고르기 (앱·로그인 방법) ─────────────────────────

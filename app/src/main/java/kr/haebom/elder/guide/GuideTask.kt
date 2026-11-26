@@ -318,6 +318,13 @@ internal enum class GuideTask(val appPackage: String?) {
                 listOf("은행", "토스", "송금", "이체", "계좌").any { it in normalized }
         }
 
+        /** "그만", "그만해 줘", "멈춰", "안내 그만", "이제 됐어" 처럼 안내를 멈추라는 말만 한 것 (다른 할 일이 붙으면 아님) */
+        private val STOP = Regex(
+            """^(이제)?(안내)?(좀)?(그만|그만둬|그만둘래|멈춰|멈춰라|중지|정지|취소|끝내|끝|됐어)(해|하자|할래|할래요|할게|할게요|할께|할께요|해줘|줘|주세요|요|해요|하세요|해라|라)?[.!~?]*$""",
+        )
+
+        fun isStopCommand(command: String): Boolean = STOP.matches(normalize(command))
+
         fun isPrivateCommand(command: String): Boolean =
             listOf("비밀번호", "비번", "인증번호", "주민등록번호", "보안코드").any { it in normalize(command) }
 

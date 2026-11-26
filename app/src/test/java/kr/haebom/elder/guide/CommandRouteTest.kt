@@ -104,4 +104,14 @@ class CommandRouteTest {
         assertEquals(CommandRoute.Task(GuideTask.YOUTUBE, "임영웅 노래"), CommandRoute.of("유튜브에서 임영웅 노래 틀어 줘", null, aiAvailable = true))
         assertEquals(CommandRoute.Ai, CommandRoute.of("멜론에서 임영웅 노래 틀어 줘", null, aiAvailable = true))
     }
+
+    @Test
+    fun stopWordsStopTheGuide() {
+        for (said in listOf("그만", "그만해 줘", "멈춰", "안내 그만", "이제 됐어", "그만할래요", "취소")) {
+            assertEquals(said, CommandRoute.Stop, CommandRoute.of(said, youtube, aiAvailable = true))
+        }
+        // 다른 할 일이 붙으면 멈춤이 아님
+        assertEquals(CommandRoute.OpenApp("유튜브"), CommandRoute.of("유튜브 켜 줘", null, aiAvailable = true))
+        assertTrue(CommandRoute.of("그만 보고 카카오톡 열어 줘", null, aiAvailable = true) != CommandRoute.Stop)
+    }
 }
