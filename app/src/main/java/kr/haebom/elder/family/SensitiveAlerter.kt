@@ -56,6 +56,23 @@ internal object SensitiveAlerter {
         }
     }
 
+    /**
+     * SOS (#8): 보호자 앱에 바로 알림. 문자는 따로 (문자 앱에서 어르신이 보냄).
+     * 결과는 자막으로 (보호자 연동이 없으면 조용히 넘어감: 문자는 그대로 감)
+     */
+    fun sos(context: Context, appName: String, packageName: String, scam: Boolean = false) {
+        val gateway = Family.gateway ?: return
+        val reason = context.getString(if (scam) R.string.sos_reason_scam else R.string.sos_reason)
+        gateway.reportSos(appName, packageName, if (scam) "scam" else null, reason) { outcome ->
+            val text = if (outcome.result == NoticeResult.CREATED) {
+                context.getString(R.string.sos_notified, outcome.guardianLabels.joinToString(", ") { "$it 님" })
+            } else {
+                message(context, outcome)
+            }
+            GuideCaption.post(text, if (outcome.result == NoticeResult.CREATED) GuideCaption.Tone.DONE else GuideCaption.Tone.WARN)
+        }
+    }
+
     fun message(context: Context, outcome: NoticeOutcome): String = when (outcome.result) {
         NoticeResult.CREATED -> context.getString(R.string.consent_sent, outcome.guardianLabels.joinToString(", ") { "$it 님" })
         NoticeResult.DUPLICATE_SUPPRESSED -> context.getString(R.string.consent_duplicate)

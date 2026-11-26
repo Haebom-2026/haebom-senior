@@ -302,6 +302,7 @@ class GuideService : AccessibilityService() {
         val screen = read.local
         val captured = read.captured
         val windowId = read.windowId
+        captured?.let { watchStuck(it.fingerprint) }
         screen?.let { local ->
             candidateBoxes = local.controls.filter { it.clickable }
                 .map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
@@ -1045,11 +1046,16 @@ class GuideService : AccessibilityService() {
         }
     }
 
-    private fun openInput(sos: Boolean, command: String? = null, foreground: String? = activeScreenPackage()) {
+    private fun openInput(
+        sos: Boolean,
+        command: String? = null,
+        foreground: String? = activeScreenPackage(),
+        alreadyNotified: Boolean = false,
+    ) {
         stopListening(announce = false)
         floatingControls.hide()
         startActivity(
-            GuideInputActivity.intent(this, sos, foreground, command).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            GuideInputActivity.intent(this, sos, foreground, command, alreadyNotified).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 
@@ -1257,6 +1263,59 @@ class GuideService : AccessibilityService() {
         stopListening(announce = false)
         GuideSession.stop()
         GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
+    }
+
+    // ───────────────────────── 막힘 (#7) ─────────────────────────
+
+    private val stuckWatch = StuckWatch()
+    private val stuckCheck = Runnable { checkStuck() }
+
+    /** 안내 중 화면이 바뀌면 시계를 다시 맞추고 45초 뒤 확인 */
+    private fun watchStuck(fingerprint: String) {
+        if (stuckWatch.seen(fingerprint, GuideSession.serial, SystemClock.uptimeMillis())) {
+            handler.removeCallbacks(stuckCheck)
+            handler.postDelayed(stuckCheck, StuckWatch.LIMIT_MS + 500)
+        }
+    }
+
+    /**
+     * 같은 화면이 45초 그대로: "잘 안 되시나요? 가족에게 알릴까요?" 한 번 물음 (안내당 1번).
+     * 어르신이 "알려 주세요" 를 고를 때만 #7. 다른 것을 묻는 중이거나 듣는 중이면 묻지 않음
+     */
+    private fun checkStuck() {
+        val serial = GuideSession.serial
+        if (GuideSession.active == null || !stuckWatch.due(serial, SystemClock.uptimeMillis())) return
+        if (card.isShowing || listener.isListening) {
+            handler.postDelayed(stuckCheck, 10_000)
+            return
+        }
+        stuckWatch.markAsked(serial)
+        val pkg = activeScreenPackage()?.takeIf { it != packageName }.orEmpty()
+        android.util.Log.d(TAG, "막힘: 같은 화면 ${StuckWatch.LIMIT_MS / 1000}초")
+        card.show(
+            key = "stuck:$serial",
+            title = getString(R.string.stuck_title),
+            message = getString(R.string.stuck_question),
+            actions = listOf(
+                OverlayCard.Action(getString(R.string.stuck_yes)) {
+                    val gateway = Family.gateway
+                    if (gateway == null) {
+                        GuideCaption.post(getString(R.string.consent_unavailable), GuideCaption.Tone.WARN)
+                    } else {
+                        gateway.reportStuck(if (pkg.isEmpty()) "" else appLabel(pkg), pkg) { outcome ->
+                            GuideCaption.post(
+                                kr.haebom.elder.family.SensitiveAlerter.message(this, outcome),
+                                if (outcome.result == kr.haebom.elder.family.NoticeResult.CREATED) GuideCaption.Tone.DONE else GuideCaption.Tone.WARN,
+                            )
+                        }
+                    }
+                },
+                OverlayCard.Action(getString(R.string.stuck_no), ElderUi.Kind.QUIET) {
+                    GuideCaption.post(getString(R.string.stuck_declined), GuideCaption.Tone.INFO)
+                },
+            ),
+        )
+        speak(getString(R.string.stuck_question))
     }
 
     // ───────────────────────── 어르신이 고르기 (앱·로그인 방법) ─────────────────────────
@@ -1580,7 +1639,7 @@ class GuideService : AccessibilityService() {
             title = getString(R.string.alert_scam_title),
             message = getString(R.string.alert_scam),
             actions = listOf(
-                OverlayCard.Action(getString(R.string.sos), ElderUi.Kind.DANGER) { openSos(foreground) },
+                OverlayCard.Action(getString(R.string.sos), ElderUi.Kind.DANGER) { openSos(foreground, scam = true) },
                 OverlayCard.Action(getString(R.string.alert_stop), ElderUi.Kind.QUIET) {},
             ),
             accent = ElderUi.RED,
@@ -1622,12 +1681,21 @@ class GuideService : AccessibilityService() {
      * 도움 요청 문자. 보호자 번호가 하나면 지금 화면에서 바로 문자 앱을 엶 (보내기는 어르신이 누름).
      * 여러 명이라 고르거나 번호를 넣어야 하면 그때만 말하기 창의 SOS 화면을 엶.
      */
-    private fun openSos(foreground: String?) {
+    private fun openSos(foreground: String?, scam: Boolean = false) {
         GuideSession.stop()
         val contacts = settings.sosContacts(Family.gateway?.links().orEmpty())
         val single = contacts.singleOrNull()
-        if (single == null) {
+        if (single == null && !scam) {
+            // 말하기 창의 SOS 화면이 문자 받을 사람을 고르고 #8 도 보냄 (여기서 또 보내면 두 번 감)
             openInput(sos = true, foreground = foreground)
+            return
+        }
+        // 보호자 앱에 바로 알림 (#8). 문자는 아래에서 따로 (어르신이 보내기를 누름)
+        val pkg = foreground?.takeIf { it != packageName }.orEmpty()
+        kr.haebom.elder.family.SensitiveAlerter.sos(this, if (pkg.isEmpty()) "" else appLabel(pkg), pkg, scam)
+        if (single == null) {
+            // 사기 의심: 알림은 scam 으로 보냈고, 문자 받을 사람은 말하기 창에서 (그 창은 #8 을 다시 보내지 않음)
+            openInput(sos = true, foreground = foreground, alreadyNotified = true)
             return
         }
         GuideCaption.post(getString(R.string.caption_sos), GuideCaption.Tone.INFO)

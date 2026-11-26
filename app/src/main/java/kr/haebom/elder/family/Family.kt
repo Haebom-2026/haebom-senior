@@ -123,6 +123,15 @@ internal interface FamilyGateway {
         reason: String,
         done: (NoticeOutcome) -> Unit,
     )
+
+    /**
+     * SOS (#8): SOS 단추, "도와줘", 사기 의심 카드의 [보호자에게 연락]. 누를 때마다 보냄 (서버도 중복 방지 없음).
+     * [category] "scam" 이면 서버가 L3(가장 급함)로. 화면 내용은 보내지 않음
+     */
+    fun reportSos(appName: String, packageName: String, category: String?, reason: String, done: (NoticeOutcome) -> Unit)
+
+    /** 막힘 (#7): 같은 안내에서 45초 진행이 없어 어르신이 "알려 주세요" 를 고름 (안내당 1번) */
+    fun reportStuck(appName: String, packageName: String, done: (NoticeOutcome) -> Unit)
 }
 
 internal object Family {

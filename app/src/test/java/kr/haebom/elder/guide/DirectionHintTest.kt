@@ -1,6 +1,8 @@
 package kr.haebom.elder.guide
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -38,5 +40,23 @@ class DirectionHintTest {
         assertNull(DirectionHint.findSeek("화면 밝기", nodes)) // 화면 밖(크기 0)
         assertNull(DirectionHint.findSeek("배터리", nodes))
         assertNull(DirectionHint.findSeek(null, nodes))
+    }
+
+    @Test
+    fun stuckAfterTheSameScreenForAWhileOncePerGuide() {
+        val watch = StuckWatch(limitMs = 45_000)
+        watch.seen("A", serial = 1, now = 0)
+        assertFalse(watch.due(1, 44_000))
+        assertTrue(watch.due(1, 45_000))
+        // 화면이 바뀌면 다시 셈
+        watch.seen("B", serial = 1, now = 50_000)
+        assertFalse(watch.due(1, 90_000))
+        assertTrue(watch.due(1, 95_000))
+        // 한 번 물었으면 같은 안내에서는 다시 묻지 않음
+        watch.markAsked(1)
+        assertFalse(watch.due(1, 200_000))
+        // 새 안내는 다시
+        watch.seen("B", serial = 2, now = 200_000)
+        assertTrue(watch.due(2, 245_000))
     }
 }

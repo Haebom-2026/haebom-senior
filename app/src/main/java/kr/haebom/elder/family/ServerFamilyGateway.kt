@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit
  *   #18 GET    /v1/elder/links               연결된 보호자 목록
  *        PATCH  /v1/elder/links/{guardianId}  고령자가 부르는 보호자 호칭(guardianLabel) 바꾸기
  *   #6  POST   /v1/elder/sensitive-entries   민감 앱 알림 (S2). 201 의 guardians 로 "{보호자}에게 알렸어요"
+ *   #7  POST   /v1/elder/stuck               막힘 (S2)
+ *   #8  POST   /v1/elder/sos                 SOS (S2, category scam 이면 L3)
  * 연결이 바뀌면 서버가 FCM data { kind: "link" } 를 보내고, [HaebomMessagingService] 가 [refresh] 를 부릅니다.
  */
 internal class ServerFamilyGateway(
@@ -153,17 +155,45 @@ internal class ServerFamilyGateway(
                 .put("category", category).put("level", level).put("reason", reason)
                 .toString()
             val reply = api.call("POST", "/v1/elder/sensitive-entries", body, UUID.randomUUID().toString())
-            val json = reply.json()
-            // 201 은 알림을 받은 보호자(guardians)를 같이 줌. 없으면(이전 서버·중복) 지금 목록의 호칭
-            val labels = notifiedLabels(json).ifEmpty { links().map { it.labelForElder } }
-            val outcome = when (json?.optString("result")) {
-                "created" -> NoticeOutcome(NoticeResult.CREATED, labels)
-                "duplicate_suppressed" -> NoticeOutcome(NoticeResult.DUPLICATE_SUPPRESSED, labels)
-                "no_guardians" -> NoticeOutcome(NoticeResult.NO_GUARDIANS)
-                else -> NoticeOutcome(NoticeResult.FAILED)
-            }
+            val outcome = noticeOutcome(reply)
             Log.d(TAG, "민감 알림 #6 ($level $category) → ${reply.code} ${reply.reason ?: ""} ${outcome.result}")
             main.post { done(outcome) }
+        }
+    }
+
+    override fun reportSos(appName: String, packageName: String, category: String?, reason: String, done: (NoticeOutcome) -> Unit) {
+        io.execute {
+            val body = JSONObject()
+                .put("packageName", packageName.take(200)).put("appName", appName.take(100))
+                .put("reason", reason.take(100))
+                .apply { category?.let { put("category", it) } }
+                .toString()
+            val reply = api.call("POST", "/v1/elder/sos", body, UUID.randomUUID().toString())
+            val outcome = noticeOutcome(reply)
+            Log.d(TAG, "SOS #8 (${category ?: "-"}) → ${reply.code} ${reply.reason ?: ""} ${outcome.result}")
+            main.post { done(outcome) }
+        }
+    }
+
+    override fun reportStuck(appName: String, packageName: String, done: (NoticeOutcome) -> Unit) {
+        io.execute {
+            val body = JSONObject().put("packageName", packageName.take(200)).put("appName", appName.take(100)).toString()
+            val reply = api.call("POST", "/v1/elder/stuck", body, UUID.randomUUID().toString())
+            val outcome = noticeOutcome(reply)
+            Log.d(TAG, "막힘 #7 → ${reply.code} ${reply.reason ?: ""} ${outcome.result}")
+            main.post { done(outcome) }
+        }
+    }
+
+    /** #6·#7·#8 응답 → 결과. 201 의 guardians 로 이름을, 없으면(중복·이전 서버) 지금 목록의 호칭 */
+    private fun noticeOutcome(reply: HaebomApi.Reply): NoticeOutcome {
+        val json = reply.json()
+        val labels = notifiedLabels(json).ifEmpty { links().map { it.labelForElder } }
+        return when (json?.optString("result")) {
+            "created" -> NoticeOutcome(NoticeResult.CREATED, labels)
+            "duplicate_suppressed" -> NoticeOutcome(NoticeResult.DUPLICATE_SUPPRESSED, labels)
+            "no_guardians" -> NoticeOutcome(NoticeResult.NO_GUARDIANS)
+            else -> NoticeOutcome(NoticeResult.FAILED)
         }
     }
 

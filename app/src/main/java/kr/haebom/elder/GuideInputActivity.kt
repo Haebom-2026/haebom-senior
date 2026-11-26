@@ -302,6 +302,11 @@ class GuideInputActivity : Activity() {
     private fun openSms() {
         GuideSession.stop()
         GuideCaption.post(getString(R.string.caption_sos), GuideCaption.Tone.INFO)
+        // 보호자 앱에 바로 알림 (#8). 문자는 아래에서 따로
+        val pkg = foregroundPackage?.takeIf { it != packageName }.orEmpty()
+        if (!intent.getBooleanExtra(EXTRA_SOS_NOTIFIED, false)) {
+            SensitiveAlerter.sos(this, if (pkg.isEmpty()) "" else appLabel(pkg), pkg)
+        }
         val contacts = settings.sosContacts(Family.gateway?.links().orEmpty())
         when (contacts.size) {
             0 -> askNumber()
@@ -384,6 +389,7 @@ class GuideInputActivity : Activity() {
 
     companion object {
         private const val EXTRA_SOS = "sos"
+        private const val EXTRA_SOS_NOTIFIED = "sos_notified"
         private const val EXTRA_FOREGROUND_PACKAGE = "foreground_package"
         private const val EXTRA_COMMAND = "command"
         private const val MICROPHONE_REQUEST = 8
@@ -394,9 +400,12 @@ class GuideInputActivity : Activity() {
             sos: Boolean = false,
             foregroundPackage: String? = null,
             command: String? = null,
+            /** SOS 를 이미 보호자 앱에 알렸음 (#8 을 다시 보내지 않음) */
+            sosNotified: Boolean = false,
         ): Intent =
             Intent(context, GuideInputActivity::class.java)
                 .putExtra(EXTRA_SOS, sos)
+                .putExtra(EXTRA_SOS_NOTIFIED, sosNotified)
                 .putExtra(EXTRA_FOREGROUND_PACKAGE, foregroundPackage)
                 .putExtra(EXTRA_COMMAND, command)
     }
