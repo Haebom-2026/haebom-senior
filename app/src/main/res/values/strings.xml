@@ -132,6 +132,11 @@
     <string name="consent_yes">예, 알려 주세요</string>
     <string name="consent_no">아니요</string>
     <string name="consent_sent">%1$s에게 알렸어요.</string>
+    <!-- 들어오니 이미 채워진 칸 (예시 글자를 입력으로 잘못 보지 않게) -->
+    <string name="prefilled_question">이미 적혀 있는 칸이 있어요: %1$s. 직접 쓰신 건가요?</string>
+    <string name="prefilled_yes">네</string>
+    <string name="prefilled_no">아니요, 원래 있었어요</string>
+    <string name="prefilled_not_mine">알겠어요. 그 칸은 빈 칸으로 보고 안내할게요. 글자를 지우고 직접 써 주세요.</string>
     <!-- SOS (#8)·막힘 (#7) -->
     <string name="sos_reason">도움 요청</string>
     <string name="sos_reason_scam">사기 의심 화면에서 도움 요청</string>

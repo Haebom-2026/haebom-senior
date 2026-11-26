@@ -70,7 +70,9 @@ internal data class CapturedScreen(
                             hint = node.hintText?.toString(),
                             enabled = node.isEnabled,
                             focused = node.isFocused,
-                            filled = node.isEditable && !node.isShowingHintText && !node.text.isNullOrBlank(),
+                            // 회색 예시 글자("홍길동", "YYYYMMDD")가 칸 글자로 들어 있는 웹 화면이 많아 걸러 냄
+                            filled = node.isEditable && !node.isShowingHintText && !node.text.isNullOrBlank() &&
+                                !Prefilled.looksLikeExample(node.text?.toString(), node.hintText?.toString()),
                         )
                     }
                 }

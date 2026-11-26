@@ -8,7 +8,8 @@ import kr.haebom.elder.R
 /**
  * 서버가 보내는 FCM data 메시지 받기. 키 이름은 서버·보호자 앱과 같은 `kind` 형식.
  *   { "kind": "link", "change": "created" | "deleted", "elderId", "guardianId" } → 가족 목록 다시 받기
- *   { "kind": "challenge", "change": "sent" | "cheered", "id", "guardianId" } → 도전 목록 다시 받기 (가족의 도전, S4 제안)
+ *   { "kind": "challenge", "change": "sent" | "cheered" | "cancelled", "id", "guardianId" } → 도전 목록 다시 받기 (가족의 도전, S4 제안)
+ *     cancelled(보호자가 취소)는 목록만 갱신하고 아무 말도 하지 않음
  * (S3 이후 { "kind": "approval", "id", "status", ... } 도 여기서 받습니다)
  * 도전 알림은 서버의 화면 알림 한 번뿐: 해봄은 다시 띄우거나 재촉하지 않음 (앱이 켜져 있으면 자막 한 줄)
  */

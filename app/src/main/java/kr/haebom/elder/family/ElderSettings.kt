@@ -110,6 +110,12 @@ internal class ElderSettings(context: Context) {
         get() = prefs.getStringSet(KEY_CHEERS_SEEN, emptySet()).orEmpty()
         set(value) = prefs.edit().putStringSet(KEY_CHEERS_SEEN, value).apply()
 
+    /** 서버 목록에 아직 해 볼 수 있는 도전([open])만 남기고 하는 중·도움 받음 기록을 지움 */
+    fun keepChallenges(open: Set<String>) {
+        challengesInProgress = challengesInProgress.intersect(open)
+        challengesHelped = challengesHelped.intersect(open)
+    }
+
     /** 도우미 안내가 시작될 때: 하는 중인 도전은 모두 "도움 받음" */
     fun markChallengeHelp() {
         val doing = challengesInProgress

@@ -26,8 +26,8 @@ internal object HaebomServer {
         api = server
         Family.gateway = ServerFamilyGateway(app, server).also { it.start() }
         // 가족의 도전 (S4 제안): 서버에 경로가 생기면 홈에 "가족이 보낸 도전" 카드가 보임
-        Challenges.gateway = ServerChallenges(server)
         val settings = ElderSettings(app)
+        Challenges.gateway = ServerChallenges(server, settings)
         GuideSession.onStarted = { settings.markChallengeHelp() }
     }
 }

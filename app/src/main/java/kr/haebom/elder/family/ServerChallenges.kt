@@ -12,7 +12,7 @@ import java.util.concurrent.Executors
  * 실제 서버로 가족의 도전 (S4 제안). 서버에 아직 경로가 없으면(404 등) 목록은 빈 채로 두고 홈 카드도 보이지 않음.
  * 보내는 것은 누른 단추와 withHelp 뿐 (화면·입력 내용은 보내지 않음).
  */
-internal class ServerChallenges(private val api: HaebomApi) : ChallengeGateway {
+internal class ServerChallenges(private val api: HaebomApi, private val settings: ElderSettings) : ChallengeGateway {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val listeners = mutableSetOf<() -> Unit>()
@@ -30,6 +30,8 @@ internal class ServerChallenges(private val api: HaebomApi) : ChallengeGateway {
             main.post {
                 if (parsed != null) {
                     list = parsed
+                    // 보호자가 취소했거나(change: cancelled) 목록에서 사라진 도전은 폰에 둔 기록도 지움
+                    settings.keepChallenges(parsed.filter { it.open }.map { it.id }.toSet())
                     listeners.toList().forEach { it() }
                 }
                 done(parsed)

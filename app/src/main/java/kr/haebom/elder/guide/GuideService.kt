@@ -300,9 +300,19 @@ class GuideService : AccessibilityService() {
         val extraLabels = query?.let { setOf(GuideTask.normalize(it)) } ?: emptySet()
         val read = readScreens(task, extraLabels) ?: return Decision(null, guideMessage)
         val screen = read.local
-        val captured = read.captured
+        // 어르신이 "원래 있던 글자" 라고 한 칸은 빈 칸으로 보고 안내
+        val captured = read.captured?.let { cap ->
+            if (prefilledSerial != GuideSession.serial) {
+                prefilledSerial = GuideSession.serial
+                prefilledForms.clear()
+                notMineFields.clear()
+            }
+            cap.copy(nodes = Prefilled.markNotMine(cap.packageName, cap.nodes, notMineFields))
+        }
         val windowId = read.windowId
         captured?.let { watchStuck(it.fingerprint) }
+        // 신청서에 처음 들어왔는데 이미 채워진 칸: 어르신이 쓰신 건지 먼저 물음 (답할 때까지 AI 를 부르지 않음)
+        captured?.let { cap -> askPrefilled(cap) }?.let { return it }
         screen?.let { local ->
             candidateBoxes = local.controls.filter { it.clickable }
                 .map { Box(it.bounds.left, it.bounds.top, it.bounds.right, it.bounds.bottom) }
@@ -1265,6 +1275,49 @@ class GuideService : AccessibilityService() {
         GuideCaption.post(getString(R.string.caption_guide_stopped), GuideCaption.Tone.INFO)
     }
 
+    // ───────────────────────── 들어오니 이미 채워진 칸 ─────────────────────────
+
+    private var prefilledSerial = -1L
+    /** 이번 안내에서 이미 본 신청서 ([Prefilled.formKey]) */
+    private val prefilledForms = mutableSetOf<String>()
+    /** 어르신이 "원래 있던 글자" 라고 한 칸 ([Prefilled.fieldKey]) */
+    private val notMineFields = mutableSetOf<String>()
+
+    /**
+     * 신청서를 이번 안내에서 처음 보는데 채워진 칸이 있으면 "직접 쓰신 건가요?" 한 번 물음.
+     * 묻는 카드가 떠 있는 동안은 기다림 (Decision 을 돌려줌), 물을 것이 없으면 null
+     */
+    private fun askPrefilled(cap: CapturedScreen): Decision? {
+        if (card.currentKey?.startsWith(PREFILLED_KEY) == true) return Decision(null, null)
+        val form = Prefilled.formKey(cap.packageName, cap.nodes)
+        if (form.isEmpty() || !prefilledForms.add(form)) return null
+        val filled = Prefilled.filledOnArrival(cap.nodes)
+        if (filled.isEmpty()) return null
+        // 칸 이름과 (보이는 칸이면) 적힌 글자. 비밀 칸·비밀 칸 있는 화면은 글자 없이 이름만
+        val list = filled.take(3).joinToString(", ") { field ->
+            val label = AuthGuide.fieldLabel(field, cap.nodes)
+            val value = field.text?.trim()?.takeIf { it.isNotEmpty() && !field.secret }?.take(15)
+            if (value == null) "‘$label’" else "$label ‘$value’"
+        }
+        val keys = filled.map { Prefilled.fieldKey(cap.packageName, it, cap.nodes) }
+        android.util.Log.d(TAG, "들어오니 채워진 칸 ${filled.size}개: 물어봄")
+        val yes = getString(R.string.prefilled_yes)
+        showPick(
+            key = PREFILLED_KEY + form.hashCode(),
+            question = getString(R.string.prefilled_question, list),
+            options = listOf(yes, getString(R.string.prefilled_no)),
+            extra = emptyList(),
+        ) { picked ->
+            if (picked != yes) {
+                notMineFields += keys
+                GuideCaption.post(getString(R.string.prefilled_not_mine), GuideCaption.Tone.INFO)
+            }
+            aiAnswer = null
+            scheduleRefresh()
+        }
+        return Decision(null, null)
+    }
+
     // ───────────────────────── 막힘 (#7) ─────────────────────────
 
     private val stuckWatch = StuckWatch()
@@ -1789,6 +1842,8 @@ class GuideService : AccessibilityService() {
          * 모델이 함께 읽으므로 "직접 입력한 뒤에는 이어서 안내" 원칙을 알려 줌.
          */
         const val SAFETY_SLOT = "rule"
+        private const val PREFILLED_KEY = "pick:prefilled:"
+
         /** 어르신이 고른 로그인 방법 (slots 로 AI 에도 감) */
         const val LOGIN_SLOT = "login_method"
         /** 고르기 카드에 한 번에 보여 줄 단추 수 (그 밖은 "다른 방법") */
