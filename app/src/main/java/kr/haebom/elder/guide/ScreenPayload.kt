@@ -95,16 +95,37 @@ internal object ScreenPayload {
     /**
      * 화면 지문: 같은 화면인지 비교할 때 씀 (늦은 AI 응답 버리기, 다시 물어볼지 정하기).
      * 누를 수 있는 요소·입력 칸의 글자만 보고, 숫자는 빼서 재생 시간처럼 계속 바뀌는 글자에 흔들리지 않게 함.
+     * 글자 없는 눌리는 틀(설정 목록의 줄처럼 글자가 눌리지 않는 자식에 있음)은 틀 안 글자로 봄:
+     * 안 그러면 목록을 밀어도 같은 화면으로 보여 서버에 다시 묻지 않음 (2026-11-27 설정 첫 화면)
      */
     fun fingerprint(packageName: String, nodes: List<ScreenNode>): String {
-        val parts = nodes.take(MAX_NODES)
+        val all = nodes.take(MAX_NODES)
+        val parts = all
             .filter { (it.clickable || it.editable) && it.className !in MOVING_CLASSES }
             .map { node ->
                 // 입력 칸은 글자 대신 채워졌는지만 봄: 비었다가 채워지면 다른 화면 → AI 에 다시 물음
                 val label = if (node.editable) (if (node.filled) "filled" else "empty") else node.text.orEmpty()
+                    .ifEmpty { if (node.description.isNullOrEmpty()) innerText(node, all) else "" }
                 "${node.className}|$label|${node.description.orEmpty()}".filterNot(Char::isDigit)
             }
         return packageName + "#" + parts.joinToString("").hashCode().toUInt().toString(16)
+    }
+
+    /** 글자 없는 틀 안에 든 눌리지 않는 글자들 (앞의 두 개) */
+    private fun innerText(frame: ScreenNode, nodes: List<ScreenNode>): String {
+        val box = frame.bounds ?: return ""
+        if (box.size < 4) return ""
+        return nodes.asSequence()
+            .filter { it !== frame && !it.clickable && !it.editable && !it.secret }
+            .filter { n ->
+                val b = n.bounds ?: return@filter false
+                val x = (b[0] + b[2]) / 2
+                val y = (b[1] + b[3]) / 2
+                x in box[0]..box[2] && y in box[1]..box[3]
+            }
+            .mapNotNull { (it.text ?: it.description)?.trim()?.takeIf(String::isNotEmpty) }
+            .take(2)
+            .joinToString("/")
     }
 
     fun heartbeat(deviceId: String, model: String, os: String, appVersion: String): String =

@@ -94,6 +94,21 @@ class ScreenPayloadTest {
     }
 
     @Test
+    fun fingerprintSeesTextInsideUnlabeledRows() {
+        // 설정 목록: 눌리는 줄에는 글자가 없고, 글자는 눌리지 않는 자식에 있음. 밀면 다른 줄이 보임
+        fun row(top: Int, title: String) = listOf(
+            ScreenNode(className = "LinearLayout", bounds = intArrayOf(0, top, 1080, top + 140), clickable = true),
+            ScreenNode(text = title, className = "TextView", bounds = intArrayOf(140, top + 20, 600, top + 80)),
+        )
+        val bottom = row(300, "유용한 기능") + row(500, "애플리케이션")
+        val top = row(300, "연결") + row(500, "소리 및 진동")
+        assertFalse(ScreenPayload.fingerprint("com.android.settings", bottom) == ScreenPayload.fingerprint("com.android.settings", top))
+        // 줄 안 숫자(배터리 42%)가 바뀌는 것은 같은 화면
+        val battery = row(300, "배터리 42%")
+        assertEquals(ScreenPayload.fingerprint("s", battery), ScreenPayload.fingerprint("s", row(300, "배터리 41%")))
+    }
+
+    @Test
     fun fingerprintIgnoresTimersAndPlainText() {
         val base = listOf(
             ScreenNode(description = "검색", className = "ImageView", clickable = true),

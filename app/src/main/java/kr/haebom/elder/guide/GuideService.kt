@@ -623,6 +623,8 @@ class GuideService : AccessibilityService() {
      * null 이면 이 화면은 AI 가 답하지 못해 로컬 안내를 씀.
      */
     private fun aiDecision(active: GuideSession.Active, captured: CapturedScreen, windowId: Int, foreground: String): Decision? {
+        // "다 됐어요" 뒤 마치는 동안은 서버를 다시 부르지 않음 (와이파이 목록처럼 저절로 바뀌는 화면)
+        if (aiDoneScheduled) return Decision(null, guideMessage)
         val fingerprint = captured.fingerprint
         if (fingerprint == aiFailedFingerprint) return null
         val answer = aiAnswer?.takeIf { it.first == fingerprint }?.second
